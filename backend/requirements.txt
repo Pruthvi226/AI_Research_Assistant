@@ -1,0 +1,22 @@
+# AI Research Assistant - Backend Dependencies
+# Python 3.9+
+
+# Web
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# PDF
+pymupdf>=1.23.0
+
+# Embeddings & search
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+numpy>=1.24.0
+
+# NLP / summarization
+transformers>=4.30.0
+torch>=2.0.0
+accelerate>=0.20.0
+
+# Utilities
+werkzeug>=3.0.0
