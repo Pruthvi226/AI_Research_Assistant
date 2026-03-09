@@ -170,17 +170,7 @@ ai-research-assistant/
 
 ---
 
-## Future improvements
 
-- **Persistence** – Store FAISS index and metadata on disk so reloading the same paper is instant.
-- **Auth** – User accounts and per-user papers/history.
-- **Multiple papers** – Switch between papers and query across them.
-- **Export** – Export summary and Q&A to PDF/Markdown.
-- **Larger LLMs** – Optional OpenAI/Anthropic for longer, more nuanced answers.
-- **Citation highlighting** – Map answers back to page/section numbers in the PDF.
-- **Dark mode** – Theme toggle in the UI.
-
----
 
 ## License
 
