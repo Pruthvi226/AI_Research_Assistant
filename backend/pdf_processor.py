@@ -144,6 +144,28 @@ class PDFProcessor:
             return text[:ref_start].strip()
         return text
 
+    def extract_references(self, text: str) -> dict:
+        """
+        Extract bibliography/references from the raw document text.
+        Returns a dict mapping the reference key/number to the citation text.
+        """
+        ref_start = self._find_references_start(text)
+        if ref_start is None:
+            return {}
+        
+        ref_text = text[ref_start:]
+        # Match brackets like [1], [2], or numbered lines like 1. 2. at the start of paragraphs
+        matches = re.finditer(r'(?:\[(\d+)\]|^\s*(\d+)\.\s+)(.*?)(?=\[|\n\s*\d+[\.\)]|\n\n|\Z)', ref_text, re.MULTILINE | re.DOTALL)
+        ref_map = {}
+        for m in matches:
+            num = m.group(1) or m.group(2)
+            content = m.group(3).strip()
+            # Clean up double spacing and line breaks
+            content = re.sub(r'\s+', ' ', content)
+            if num and content:
+                ref_map[num] = content
+        return ref_map
+
     def process(self, pdf_path: str | Path) -> str:
         """
         Full pipeline: extract text, clean formatting, remove references.
@@ -157,3 +179,4 @@ class PDFProcessor:
         raw = self.extract_text(pdf_path)
         cleaned = self._clean_formatting(raw)
         return self.remove_references_section(cleaned)
+

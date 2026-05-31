@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: scientia-backend
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      - uploads-data:/app/uploads
+      - indices-data:/app/indices
+    depends_on:
+      - db
+      - redis
+    networks:
+      - scientia-network
+
+  frontend:
+    build: ./frontend
+    container_name: scientia-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - scientia-network
+
+  db:
+    image: postgres:15-alpine
+    container_name: scientia-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgress_password
+      POSTGRES_DB: ai_researcher
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - scientia-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: scientia-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - scientia-network
+
+volumes:
+  uploads-data:
+  indices-data:
+  postgres-data:
+  redis-data:
+
+networks:
+  scientia-network:
+    driver: bridge

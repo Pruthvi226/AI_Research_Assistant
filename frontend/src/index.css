@@ -1,15 +1,99 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  @apply bg-paper-50 text-paper-900;
+:root {
+  --bg-primary: #0a0a0c;
+  --bg-secondary: #16161a;
+  --accent: #6366f1;
+  --accent-glow: rgba(99, 102, 241, 0.3);
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --glass: rgba(255, 255, 255, 0.03);
+  --border: rgba(255, 255, 255, 0.08);
 }
 
-#root {
-  min-height: 100vh;
+body {
+  @apply bg-[#0a0a0c] text-[#f8fafc] font-['Inter'];
+  -webkit-font-smoothing: antialiased;
 }
+
+h1, h2, h3, h4 {
+  @apply font-['Outfit'] font-semibold;
+}
+
+.glass-panel {
+  @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl;
+}
+
+.sidebar-item {
+  @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-white/5 text-slate-400 hover:text-white cursor-pointer;
+}
+
+.sidebar-item-active {
+  @apply bg-[#6366f1]/10 text-[#6366f1] border border-[#6366f1]/20;
+}
+
+.btn-primary {
+  @apply px-6 py-2.5 bg-[#6366f1] hover:bg-[#4f46e5] text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20 active:scale-95;
+}
+
+.chat-bubble-ai {
+  @apply glass-panel p-4 max-w-[85%] border-l-4 border-l-[#6366f1];
+}
+
+.chat-bubble-user {
+  @apply bg-[#16161a] p-4 max-w-[85%] ml-auto rounded-2xl border border-white/5;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-white/20 transition-colors;
+}
+
+@keyframes loading-bar {
+  0% {
+    width: 0%;
+  }
+  50% {
+    width: 75%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+@keyframes audio-bar {
+  0%, 100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.visualizer-bar {
+  display: inline-block;
+  width: 3px;
+  background-color: #6366f1;
+  border-radius: 9999px;
+  animation: audio-bar 1.2s ease-in-out infinite;
+  transform-origin: bottom;
+}
+.visualizer-bar:nth-child(1) { animation-delay: 0.1s; height: 16px; }
+.visualizer-bar:nth-child(2) { animation-delay: 0.3s; height: 24px; }
+.visualizer-bar:nth-child(3) { animation-delay: 0.2s; height: 20px; }
+.visualizer-bar:nth-child(4) { animation-delay: 0.5s; height: 28px; }
+.visualizer-bar:nth-child(5) { animation-delay: 0.4s; height: 18px; }
+
+
+

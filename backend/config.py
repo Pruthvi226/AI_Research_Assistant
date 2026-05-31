@@ -22,6 +22,8 @@ class FlaskConfig:
     MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50 MB max file size
     UPLOAD_EXTENSIONS = {".pdf"}
     ALLOWED_EXTENSIONS = {"pdf"}
+    DATABASE_URI = os.environ.get("DATABASE_URI", str(UPLOAD_FOLDER / "db.sqlite"))
+
 
 
 # PDF processing
@@ -75,3 +77,14 @@ class InsightsConfig:
     NUM_FUTURE_IDEAS = 5
     NUM_PAPER_TITLES = 3
     NUM_HIGHLIGHT_SENTENCES = 5
+
+
+# Advanced AI & LLM settings
+class AIConfig:
+    """Configuration for cloud LLM APIs."""
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+    PROVIDER = os.environ.get("AI_PROVIDER", "gemini")  # "gemini", "openai", "local"
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+

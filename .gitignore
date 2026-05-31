@@ -1,0 +1,21 @@
+# Dependency directories
+node_modules/
+frontend/node_modules/
+
+# Python environments & caches
+__pycache__/
+backend/__pycache__/
+*.pyc
+venv/
+backend/venv/
+
+# Local databases and indexes
+*.sqlite
+uploads/
+backend/uploads/
+indices/
+backend/indices/
+
+# Environment configurations
+.env
+backend/.env
