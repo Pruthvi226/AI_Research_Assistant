@@ -1,14 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Send, Sparkles, Paperclip, UploadCloud, HelpCircle, FileText } from 'lucide-react';
+import { Send, Sparkles, Paperclip, UploadCloud, HelpCircle, FileText, Image as ImageIcon, Loader2 } from 'lucide-react';
 
-const ChatPanel = ({ activePaper, onUpload, loading }) => {
+const ChatPanel = ({ activePaper, onUpload, loading, uploadJob }) => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [asking, setAsking] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [standaloneResult, setStandaloneResult] = useState(null);
+  const [imageUploading, setImageUploading] = useState(false);
+  const chatRootRef = useRef(null);
   const bottomRef = useRef(null);
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   // Advanced Citation Drawer States
   const [activeCitation, setActiveCitation] = useState(null);
@@ -20,7 +24,10 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
     setLoadingCitation(true);
     setActiveCitation({ ref_num: refNum, loading: true });
     try {
-      const res = await axios.get(`/citation?session_id=${activePaper.session_id}&ref_num=${refNum}`);
+      const res = await axios.post('/api/citations', {
+        session_id: activePaper.session_id,
+        ref_num: refNum
+      });
       setActiveCitation(res.data);
     } catch (err) {
       console.error(err);
@@ -78,6 +85,21 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
     );
   };
 
+  const renderSourceSection = (section) => {
+    const text = String(section || '');
+    const [firstLine, ...rest] = text.split('\n');
+    const hasSourceLabel = firstLine.startsWith('[Source ') && firstLine.endsWith(']');
+    if (!hasSourceLabel) return text;
+    return (
+      <div className="space-y-2">
+        <span className="inline-flex rounded-full bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-300">
+          {firstLine.slice(1, -1)}
+        </span>
+        <p className="whitespace-pre-wrap">{rest.join('\n').trim()}</p>
+      </div>
+    );
+  };
+
 
   // Status updates displayed during document processing
   const [processingStatus, setProcessingStatus] = useState("Initializing PDF processor...");
@@ -109,7 +131,7 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
     if (activePaper) {
       const loadHistory = async () => {
         try {
-          const res = await axios.get(`/history?session_id=${activePaper.session_id}`);
+          const res = await axios.get(`/api/history?session_id=${activePaper.session_id}`);
           setMessages(res.data.history || []);
         } catch (err) {
           console.error("Failed to load chat history:", err);
@@ -127,8 +149,8 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
   // Scroll to bottom of chat and trigger KaTeX rendering
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    if (window.renderMathInElement) {
-      window.renderMathInElement(document.body, {
+    if (window.renderMathInElement && chatRootRef.current) {
+      window.renderMathInElement(chatRootRef.current, {
         delimiters: [
           { left: "$$", right: "$$", display: true },
           { left: "$", right: "$", display: false },
@@ -149,24 +171,66 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
     setAsking(true);
 
     try {
-      const res = await axios.post('/ask', {
-        question: question,
+      const res = await axios.post('/api/chat', {
+        query: question,
         session_id: activePaper.session_id
       });
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: res.data.answer,
-        sections: res.data.relevant_sections || []
+        content: res.data.answer || res.data.response,
+        sections: res.data.relevant_sections || res.data.sources || [],
+        selected_agent: res.data.selected_agent,
+        intent: res.data.intent
       }]);
     } catch (err) {
       console.error(err);
       const errMsg = err.response?.data?.error || err.message || "Failed to generate answer";
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `⚠️ Error: ${errMsg}. Please check your API key config in Settings.`
+        content: `Error: ${errMsg}. Please check your API key config in Settings.`
       }]);
     } finally {
       setAsking(false);
+    }
+  };
+
+  const isImageFile = (file) => {
+    return file?.type?.startsWith('image/') || /\.(png|jpe?g|webp|bmp|tiff)$/i.test(file?.name || '');
+  };
+
+  const handleEquationImage = async (file) => {
+    if (!file) return;
+    setImageUploading(true);
+    setStandaloneResult(null);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await axios.post('/api/upload/image', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const agentMessage = {
+        role: 'assistant',
+        content: res.data.response,
+        sections: res.data.sources || [],
+        selected_agent: res.data.selected_agent,
+        intent: res.data.intent
+      };
+      if (activePaper) {
+        setMessages(prev => [...prev, agentMessage]);
+      } else {
+        setStandaloneResult(agentMessage);
+      }
+    } catch (err) {
+      const errMsg = err.response?.data?.error || err.message || "Failed to analyze equation image";
+      setStandaloneResult({
+        role: 'assistant',
+        content: `Error: ${errMsg}`,
+        selected_agent: 'Math Equation Agent',
+        intent: 'equation_reasoning'
+      });
+    } finally {
+      setImageUploading(false);
     }
   };
 
@@ -189,20 +253,31 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
       const file = e.dataTransfer.files[0];
       if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
         onUpload(file);
+      } else if (isImageFile(file)) {
+        handleEquationImage(file);
       } else {
-        alert("Please upload PDF documents only.");
+        alert("Please upload a PDF document or equation image.");
       }
     }
   };
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      onUpload(e.target.files[0]);
+      const file = e.target.files[0];
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        onUpload(file);
+      } else if (isImageFile(file)) {
+        handleEquationImage(file);
+      }
     }
   };
 
   const triggerFileInput = () => {
     fileInputRef.current.click();
+  };
+
+  const triggerImageInput = () => {
+    imageInputRef.current.click();
   };
 
   // Predefined prompts for quick user exploration
@@ -214,6 +289,8 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
 
   // Render Loading Phase
   if (loading) {
+    const jobProgress = Math.max(5, Math.min(100, uploadJob?.progress ?? 60));
+    const statusText = uploadJob?.message || processingStatus;
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 bg-[#0a0a0c]">
         <div className="relative w-24 h-24 mb-8">
@@ -229,10 +306,18 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
         
         <div className="w-full max-w-sm bg-white/5 border border-white/10 rounded-2xl p-4 backdrop-blur-xl">
           <p className="text-sm text-slate-300 text-center leading-relaxed font-medium transition-all duration-500">
-            {processingStatus}
+            {statusText}
           </p>
+          {uploadJob?.status && (
+            <p className="text-[10px] text-slate-500 text-center mt-2 uppercase tracking-wider">
+              {uploadJob.status} {uploadJob.id ? `- ${uploadJob.id.slice(0, 8)}` : ''}
+            </p>
+          )}
           <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden mt-4">
-            <div className="h-full bg-indigo-500 rounded-full animate-[loading-bar_10s_infinite]" style={{ width: '60%' }} />
+            <div
+              className={`h-full bg-indigo-500 rounded-full transition-all duration-500 ${uploadJob ? '' : 'animate-[loading-bar_10s_infinite]'}`}
+              style={{ width: `${jobProgress}%` }}
+            />
           </div>
         </div>
       </div>
@@ -269,13 +354,37 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
               accept=".pdf" 
               className="hidden" 
             />
+            <input
+              type="file"
+              ref={imageInputRef}
+              onChange={handleFileChange}
+              accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff"
+              className="hidden"
+            />
             <button 
               onClick={triggerFileInput} 
               className="btn-primary flex items-center gap-2"
             >
               Browse PDF Paper
             </button>
+            <button
+              onClick={triggerImageInput}
+              disabled={imageUploading}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl text-sm font-medium transition-all disabled:opacity-50"
+            >
+              {imageUploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+              Equation Image
+            </button>
           </div>
+
+          {standaloneResult && (
+            <div className="w-full max-w-xl glass-panel p-4 text-left border-emerald-500/20 bg-emerald-500/[0.03]">
+              <div className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                <Sparkles size={11} /> Handled by {standaloneResult.selected_agent}
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{standaloneResult.content}</p>
+            </div>
+          )}
 
           {/* Tips card */}
           <div className="mt-8 p-4 glass-panel border-white/5 max-w-sm flex items-start gap-3 text-left">
@@ -292,7 +401,7 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
 
   // Render Real Chat Interface
   return (
-    <div className="h-full flex flex-col bg-[#0a0a0c] relative">
+    <div ref={chatRootRef} className="h-full flex flex-col bg-[#0a0a0c] relative">
       {/* Sticky Top Header */}
       <div className="px-6 py-4 border-b border-white/5 bg-[#0a0a0c]/80 backdrop-blur-md z-10 flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -324,6 +433,11 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
         {messages.map((m, i) => (
           <div key={i} className={m.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai animate-in fade-in duration-300'}>
             <div className="leading-relaxed text-sm">
+              {m.role === 'assistant' && (m.selected_agent || m.intent) && (
+                <div className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                  <Sparkles size={11} /> Handled by {m.selected_agent || m.intent}
+                </div>
+              )}
               {renderMessageContent(m.content)}
             </div>
             
@@ -337,7 +451,7 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
                 <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-2">
                   {m.sections.map((section, idx) => (
                     <div key={idx} className="p-3 bg-white/[0.02] border border-white/5 rounded-lg text-[11px] text-slate-400 leading-relaxed font-mono">
-                      {section}
+                      {renderSourceSection(section)}
                     </div>
                   ))}
                 </div>
@@ -384,12 +498,27 @@ const ChatPanel = ({ activePaper, onUpload, loading }) => {
             accept=".pdf" 
             className="hidden" 
           />
+          <input
+            type="file"
+            ref={imageInputRef}
+            onChange={handleFileChange}
+            accept="image/png,image/jpeg,image/webp,image/bmp,image/tiff"
+            className="hidden"
+          />
           <button 
             onClick={triggerFileInput}
             title="Upload/change paper" 
             className="p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors"
           >
             <Paperclip size={18} />
+          </button>
+          <button
+            onClick={triggerImageInput}
+            title="Analyze equation image"
+            className="p-2 hover:bg-white/5 rounded-lg text-slate-400 hover:text-white transition-colors"
+            disabled={imageUploading}
+          >
+            {imageUploading ? <Loader2 size={18} className="animate-spin" /> : <ImageIcon size={18} />}
           </button>
           
           <input

@@ -15,7 +15,7 @@ const SettingsPanel = ({ settings, onSave }) => {
     setSuccess(false);
 
     try {
-      await axios.post('/settings', {
+      await axios.post('/api/settings', {
         gemini_api_key: apiKey.trim()
       });
       setSuccess(true);

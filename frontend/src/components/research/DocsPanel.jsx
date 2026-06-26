@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BookOpen, FileText, Trash2, ArrowRight, Search, Plus, Sparkles, CheckSquare, Square } from 'lucide-react';
 
-const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading, onSynthesize }) => {
+const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading, uploadJob, onSynthesize }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
 
@@ -61,9 +61,19 @@ const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading,
 
       {/* Loading state overlays */}
       {loading && (
-        <div className="mb-6 p-4 glass-panel border-indigo-500/20 bg-indigo-500/5 flex items-center gap-3 animate-pulse">
+        <div className="mb-6 p-4 glass-panel border-indigo-500/20 bg-indigo-500/5 flex items-center gap-3">
           <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin shrink-0" />
-          <span className="text-xs font-semibold text-indigo-400">Processing and indexing document in background...</span>
+          <div className="flex-1 min-w-0">
+            <span className="text-xs font-semibold text-indigo-400">
+              {uploadJob?.message || 'Processing and indexing document in background...'}
+            </span>
+            <div className="h-1 bg-white/10 rounded-full overflow-hidden mt-2">
+              <div
+                className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(5, Math.min(100, uploadJob?.progress ?? 45))}%` }}
+              />
+            </div>
+          </div>
         </div>
       )}
 

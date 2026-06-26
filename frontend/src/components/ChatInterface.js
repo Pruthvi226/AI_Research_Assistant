@@ -87,7 +87,7 @@ function ChatInterface({ sessionId, hasPaper, loading }) {
                       <ul className="mt-1 space-y-1 text-xs text-paper-600">
                         {m.sections.slice(0, 3).map((s, j) => (
                           <li key={j} className="line-clamp-2">
-                            {s.slice(0, 200)}{s.length > 200 ? '…' : ''}
+                            {s.slice(0, 200)}{s.length > 200 ? '...' : ''}
                           </li>
                         ))}
                       </ul>
@@ -99,7 +99,7 @@ function ChatInterface({ sessionId, hasPaper, loading }) {
             {asking && (
               <div className="flex justify-start">
                 <div className="bg-paper-100 rounded-lg px-3 py-2 text-sm text-paper-600">
-                  Thinking…
+                  Thinking...
                 </div>
               </div>
             )}

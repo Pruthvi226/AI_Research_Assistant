@@ -57,9 +57,12 @@ const ResearchPanel = ({ activePaper, loading }) => {
 
   // Audio Podcast states
   const [audioUrl, setAudioUrl] = useState(null);
+  const [audioDownloadUrl, setAudioDownloadUrl] = useState(null);
+  const [podcastScript, setPodcastScript] = useState('');
   const [generatingAudio, setGeneratingAudio] = useState(false);
   const [audioError, setAudioError] = useState(null);
 
+  const panelRef = useRef(null);
   const audioRef = useRef(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -72,30 +75,37 @@ const ResearchPanel = ({ activePaper, loading }) => {
   const [githubRepos, setGithubRepos] = useState([]);
   const [loadingRepos, setLoadingRepos] = useState(false);
   const [synthesizedCode, setSynthesizedCode] = useState(null);
+  const [codeDownloadUrl, setCodeDownloadUrl] = useState(null);
   const [compilingCode, setCompilingCode] = useState(false);
   const [codeError, setCodeError] = useState(null);
 
-  // Fetch GitHub repos when paper loads
+  // Fetch GitHub repos only when the Code tab is opened.
   useEffect(() => {
-    if (!activePaper || !activePaper.filename || activePaper.session_id?.includes(',')) {
+    if (activeTab !== 'code' || !activePaper || !activePaper.filename || activePaper.session_id?.includes(',')) {
       setGithubRepos([]);
       return;
     }
+    const controller = new AbortController();
     const fetchGithubRepos = async () => {
       setLoadingRepos(true);
       try {
-        const query = encodeURIComponent(activePaper.filename.replace('.pdf', '').substring(0, 80));
-        const res = await axios.get(`https://api.github.com/search/repositories?q=${query}`);
-        setGithubRepos(res.data.items?.slice(0, 3) || []);
+        const query = activePaper.filename.replace('.pdf', '').substring(0, 80);
+        const res = await axios.post('/api/github', { topic: query }, {
+          signal: controller.signal,
+        });
+        setGithubRepos(res.data.repositories?.slice(0, 3) || []);
       } catch (err) {
-        console.error("GitHub search failed:", err);
+        if (err.name !== 'CanceledError') {
+          console.error("GitHub search failed:", err);
+        }
         setGithubRepos([]);
       } finally {
         setLoadingRepos(false);
       }
     };
     fetchGithubRepos();
-  }, [activePaper]);
+    return () => controller.abort();
+  }, [activePaper, activeTab]);
 
   // Sync / set default values when equations load
   useEffect(() => {
@@ -117,6 +127,7 @@ const ResearchPanel = ({ activePaper, loading }) => {
     }
     // Reset code synthesis states
     setSynthesizedCode(null);
+    setCodeDownloadUrl(null);
     setCompilingCode(false);
     setCodeError(null);
   }, [activePaper]);
@@ -126,8 +137,9 @@ const ResearchPanel = ({ activePaper, loading }) => {
     setCompilingCode(true);
     setCodeError(null);
     try {
-      const res = await axios.post('/synthesize_code', { session_id: activePaper.session_id });
+      const res = await axios.post('/api/code', { session_id: activePaper.session_id });
       setSynthesizedCode(res.data.code);
+      setCodeDownloadUrl(res.data.download_url || res.data.artifacts?.download_url || null);
     } catch (err) {
       setCodeError(err.response?.data?.error || "Failed to compile code scaffold.");
     } finally {
@@ -181,6 +193,8 @@ const ResearchPanel = ({ activePaper, loading }) => {
   // Reset audio states when paper changes
   useEffect(() => {
     setAudioUrl(null);
+    setAudioDownloadUrl(null);
+    setPodcastScript('');
     setGeneratingAudio(false);
     setAudioError(null);
     setIsPlaying(false);
@@ -193,8 +207,17 @@ const ResearchPanel = ({ activePaper, loading }) => {
     setGeneratingAudio(true);
     setAudioError(null);
     try {
-      const res = await axios.post('/podcast', { session_id: activePaper.session_id });
-      setAudioUrl(res.data.url);
+      const res = await axios.post('/api/podcast', {
+        session_id: activePaper.session_id,
+        overwrite_audio: true
+      });
+      setPodcastScript(res.data.script || res.data.artifacts?.script || '');
+      setAudioDownloadUrl(res.data.download_url || res.data.artifacts?.download_url || null);
+      if (res.data.url) {
+        setAudioUrl(`${res.data.url}?t=${Date.now()}`);
+      } else {
+        setAudioError("Podcast script generated, but audio synthesis is unavailable in this environment.");
+      }
     } catch (err) {
       setAudioError(err.response?.data?.error || "Failed to generate audio summary.");
     } finally {
@@ -245,8 +268,8 @@ const ResearchPanel = ({ activePaper, loading }) => {
 
   // Trigger KaTeX parsing when active document or tab selection changes
   useEffect(() => {
-    if (window.renderMathInElement) {
-      window.renderMathInElement(document.body, {
+    if (window.renderMathInElement && panelRef.current) {
+      window.renderMathInElement(panelRef.current, {
         delimiters: [
           { left: "$$", right: "$$", display: true },
           { left: "$", right: "$", display: false },
@@ -276,6 +299,28 @@ const ResearchPanel = ({ activePaper, loading }) => {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+  };
+
+  const handleExportMarkdown = () => {
+    if (!activePaper || activePaper.session_id?.includes(',')) return;
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = `/api/documents/${activePaper.session_id}/export/markdown`;
+    downloadAnchor.download = '';
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleDownloadScript = () => {
+    if (!podcastScript) return;
+    const blob = new Blob([podcastScript], { type: 'text/plain;charset=utf-8' });
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.href = URL.createObjectURL(blob);
+    downloadAnchor.download = `Scientia_Podcast_${activePaper.filename.replace(/\.pdf$/i, '')}.txt`;
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+    URL.revokeObjectURL(downloadAnchor.href);
   };
 
   // Skeleton loading screen
@@ -319,10 +364,11 @@ const ResearchPanel = ({ activePaper, loading }) => {
   const suggestedTitles = activePaper.suggested_titles || [];
   const importantSentences = activePaper.important_sentences || [];
   const sections = activePaper.summary?.sections || {};
+  const references = activePaper.references || {};
 
   // Render structured tabs
   return (
-    <div className="h-full flex flex-col bg-[#0f0f12]">
+    <div ref={panelRef} className="h-full flex flex-col bg-[#0f0f12]">
       {/* Sticky top tab bar */}
       <div className="px-6 pt-6 pb-2 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#0f0f12]">
         <div className="flex gap-4 overflow-x-auto no-scrollbar">
@@ -332,17 +378,29 @@ const ResearchPanel = ({ activePaper, loading }) => {
           >
             Summary
           </button>
+          <button
+            onClick={() => setActiveTab('sources')}
+            className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'sources' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
+          >
+            Sources
+          </button>
           <button 
             onClick={() => setActiveTab('equations')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'equations' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
-            Equations Playground
+            Equation
           </button>
           <button 
             onClick={() => setActiveTab('code')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'code' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
-            Code & Repos
+            Code
+          </button>
+          <button
+            onClick={() => setActiveTab('podcast')}
+            className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'podcast' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
+          >
+            Podcast
           </button>
           <button 
             onClick={() => setActiveTab('insights')}
@@ -352,13 +410,24 @@ const ResearchPanel = ({ activePaper, loading }) => {
           </button>
         </div>
 
-        <button 
-          onClick={handleExport}
-          title="Export analysis report"
-          className="p-2 glass-panel border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all text-xs flex items-center gap-1.5 shrink-0"
-        >
-          <Download size={12} /> Export
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {!activePaper.session_id?.includes(',') && (
+            <button
+              onClick={handleExportMarkdown}
+              title="Download markdown report"
+              className="p-2 glass-panel border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all text-xs flex items-center gap-1.5"
+            >
+              <Download size={12} /> Markdown
+            </button>
+          )}
+          <button
+            onClick={handleExport}
+            title="Export analysis JSON"
+            className="p-2 glass-panel border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all text-xs flex items-center gap-1.5"
+          >
+            <Download size={12} /> JSON
+          </button>
+        </div>
       </div>
 
       {/* Dynamic Tab Renderer */}
@@ -408,13 +477,13 @@ const ResearchPanel = ({ activePaper, loading }) => {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                      <h4 className="text-xs font-bold text-white font-['Outfit']">NotebookLM-Style Podcast Briefing</h4>
+                      <h4 className="text-xs font-bold text-white font-['Outfit']">Realistic Audio Explanation</h4>
                       <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 text-[8px] font-extrabold uppercase tracking-wider">
                         AI Podcast
                       </span>
                     </div>
                     <p className="text-xs text-slate-400 leading-relaxed mb-4">
-                      A synthesized technical overview conversation diving into the core methodology, results, and critical critique of this paper.
+                      A natural spoken explanation that turns the paper into a clear research story, without markdown, code, or robotic section labels.
                     </p>
 
                     {/* Audio state switcher */}
@@ -422,7 +491,7 @@ const ResearchPanel = ({ activePaper, loading }) => {
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-2 text-xs text-indigo-400 font-semibold">
                           <Loader2 size={14} className="animate-spin" />
-                          <span>Generating AI Podcast summary (this may take up to a minute)...</span>
+                          <span>Generating natural narration (this may take up to a minute)...</span>
                         </div>
                       </div>
                     ) : audioUrl ? (
@@ -478,7 +547,7 @@ const ResearchPanel = ({ activePaper, loading }) => {
                           onClick={handleSynthesizeAudio}
                           className="flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-lg shadow-indigo-500/10 transition-all self-start"
                         >
-                          <Volume2 size={14} /> Generate Audio Briefing
+                          <Volume2 size={14} /> Generate Realistic Audio
                         </button>
                         {audioError && (
                           <div className="text-[10px] text-red-400 flex items-center gap-1">
@@ -548,6 +617,168 @@ const ResearchPanel = ({ activePaper, loading }) => {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'sources' && (
+          <div className="space-y-6">
+            <div className="glass-panel p-5 border-white/5 bg-white/[0.005]">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Source Evidence</h4>
+              {importantSentences.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No highlighted source snippets were stored for this document.</p>
+              ) : (
+                <div className="space-y-3">
+                  {importantSentences.map((sentence, idx) => (
+                    <div key={idx} className="p-3 bg-white/[0.02] border border-white/5 rounded-lg text-xs text-slate-300 leading-relaxed">
+                      {sentence}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="glass-panel p-5 border-white/5 bg-white/[0.005]">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Parsed References</h4>
+              {Object.keys(references).length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No bibliography entries were detected in the uploaded PDF.</p>
+              ) : (
+                <div className="space-y-2 max-h-[520px] overflow-y-auto pr-2">
+                  {Object.entries(references).map(([refNum, citation]) => (
+                    <div key={refNum} className="p-3 bg-white/[0.02] border border-white/5 rounded-lg">
+                      <span className="text-[10px] font-bold text-indigo-400">[{refNum}]</span>
+                      <p className="text-xs text-slate-300 leading-relaxed mt-1">{citation}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'podcast' && (
+          <div className="space-y-6">
+            <div className="glass-panel p-6 border-indigo-500/20 bg-indigo-500/[0.03]">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+                  {isPlaying ? (
+                    <div className="flex items-end gap-[3px] h-6">
+                      <span className="visualizer-bar" />
+                      <span className="visualizer-bar" />
+                      <span className="visualizer-bar" />
+                      <span className="visualizer-bar" />
+                      <span className="visualizer-bar" />
+                    </div>
+                  ) : (
+                    <Headphones size={22} className={generatingAudio ? 'animate-bounce' : ''} />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <h4 className="text-sm font-bold text-white font-['Outfit']">Research Podcast Briefing</h4>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[8px] font-extrabold uppercase tracking-wider">
+                      Podcast Agent
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed mb-4">
+                    Generate a natural MP3 explanation from the active paper summary. The narration is cleaned for speech, not read like markdown or code.
+                  </p>
+
+                  {generatingAudio ? (
+                    <div className="flex items-center gap-2 text-xs text-indigo-400 font-semibold">
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Generating realistic narration and audio...</span>
+                    </div>
+                  ) : audioUrl ? (
+                    <div className="space-y-3.5">
+                      <audio
+                        ref={audioRef}
+                        src={audioUrl}
+                        onTimeUpdate={handleTimeUpdate}
+                        onLoadedMetadata={handleLoadedMetadata}
+                        onEnded={() => setIsPlaying(false)}
+                        className="hidden"
+                      />
+                      <div className="flex items-center gap-4 bg-white/5 border border-white/5 p-3 rounded-xl">
+                        <button
+                          onClick={togglePlay}
+                          className="w-9 h-9 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white flex items-center justify-center shrink-0 transition-all active:scale-95"
+                        >
+                          {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
+                        </button>
+                        <div className="flex-1 flex flex-col gap-1 min-w-0">
+                          <input
+                            type="range"
+                            min={0}
+                            max={duration || 0}
+                            value={currentTime}
+                            onChange={handleSeek}
+                            className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+                          />
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                            <span>{formatTime(currentTime)}</span>
+                            <span>{formatTime(duration)}</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={changeSpeed}
+                          className="px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/5 text-[10px] font-bold font-mono text-slate-300 hover:text-white transition-all hover:bg-white/10 shrink-0"
+                        >
+                          {playbackRate}x
+                        </button>
+                        <a
+                          href={audioDownloadUrl || audioUrl}
+                          download
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-300 uppercase"
+                        >
+                          Download
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <button
+                        onClick={handleSynthesizeAudio}
+                        className="flex items-center justify-center gap-1.5 px-4 py-2 bg-indigo-500 hover:bg-indigo-400 text-white rounded-xl text-xs font-semibold transition-all self-start"
+                      >
+                        <Volume2 size={14} /> Generate Podcast
+                      </button>
+                      {audioError && (
+                        <div className="text-[10px] text-red-400 flex items-center gap-1">
+                          <AlertTriangle size={10} className="shrink-0" />
+                          <span>{audioError}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            {podcastScript && (
+              <div className="glass-panel p-5 border-white/5 bg-white/[0.005]">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Narration Script</h4>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleCopy(podcastScript, 'podcast-script')}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-all border border-white/5"
+                    >
+                      {copiedSection === 'podcast-script' ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                      {copiedSection === 'podcast-script' ? 'Copied' : 'Copy'}
+                    </button>
+                    <button
+                      onClick={handleDownloadScript}
+                      className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/15"
+                    >
+                      <Download size={12} /> Script
+                    </button>
+                  </div>
+                </div>
+                <p className="max-h-72 overflow-y-auto pr-2 text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">
+                  {podcastScript}
+                </p>
               </div>
             )}
           </div>
@@ -722,7 +953,7 @@ const ResearchPanel = ({ activePaper, loading }) => {
                 ) : (
                   <div className="space-y-3">
                     {githubRepos.map(repo => (
-                      <div key={repo.id} className="glass-panel p-4 bg-white/[0.005] border-white/5 transition-all hover:bg-white/[0.015] flex flex-col justify-between h-28 relative group">
+                      <div key={repo.id || repo.html_url || repo.name} className="glass-panel p-4 bg-white/[0.005] border-white/5 transition-all hover:bg-white/[0.015] flex flex-col justify-between h-28 relative group">
                         <div>
                           <div className="flex justify-between items-start gap-2">
                             <span className="text-xs font-bold text-slate-200 line-clamp-1 break-all pr-1">{repo.name}</span>
@@ -774,13 +1005,24 @@ const ResearchPanel = ({ activePaper, loading }) => {
                       <span className="text-[10px] font-bold font-mono text-slate-400 uppercase flex items-center gap-1">
                         <Terminal size={12} /> generated_model.py
                       </span>
-                      <button 
-                        onClick={() => handleCopy(synthesizedCode, 'scaffold')}
-                        className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer border border-white/5"
-                      >
-                        {copiedSection === 'scaffold' ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
-                        <span>{copiedSection === 'scaffold' ? 'Copied' : 'Copy Code'}</span>
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {codeDownloadUrl && (
+                          <a
+                            href={codeDownloadUrl}
+                            download
+                            className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/15"
+                          >
+                            <Download size={12} /> Download
+                          </a>
+                        )}
+                        <button
+                          onClick={() => handleCopy(synthesizedCode, 'scaffold')}
+                          className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-all cursor-pointer border border-white/5"
+                        >
+                          {copiedSection === 'scaffold' ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+                          <span>{copiedSection === 'scaffold' ? 'Copied' : 'Copy Code'}</span>
+                        </button>
+                      </div>
                     </div>
                     
                     {/* Scrollable Editor code */}

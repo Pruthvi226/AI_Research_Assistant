@@ -1,9 +1,9 @@
 import os
 import logging
+import re
 from pathlib import Path
 from typing import Optional
 from gtts import gTTS
-import google.generativeai as genai
 from config import UPLOAD_FOLDER
 from gemini_engine import GeminiEngine
 
@@ -23,26 +23,18 @@ class PodcastService:
         """
         output_path = UPLOAD_FOLDER / f"{session_id}_podcast.mp3"
 
-        # If already cached/generated, return immediately
-        if output_path.exists():
-            logger.info(f"Podcast already cached at: {output_path}")
-            return str(output_path)
-
         if not gemini.is_available:
             raise ValueError("Gemini API key is not configured. Add it in Settings.")
 
         logger.info(f"Generating technical audio script for: {doc_title}")
 
-        prompt = f"""You are an elite academic audio host. Synthesize a highly engaging, professional, and clear vocal presentation of the following research paper.
+        prompt = f"""You are an elite academic audio host. Synthesize a realistic, professional, and clear spoken explanation of the following research paper.
         
-        Write a complete, fluent narrative summarizing:
-        1. The Core Breakthrough & Problem addressed.
-        2. The Technical Methodology & Architecture used.
-        3. The Evaluation Benchmarks & Experimental Results.
-        4. Technical Limitations & Gaps for future work.
-
-        Make your speech extremely articulate, logical, and structured. Use phrases like "Welcome to today's Scientia.ai audio briefing", "First, let's look at the methodology", "In terms of benchmarks, they evaluated...", and "Finally, a critical limitation is...".
-        Do NOT write headers or host names (like "Host A:"). Write a single, cohesive, long technical narrative in natural speech.
+        Write a single cohesive narration that sounds like a friendly research podcast host explaining the paper to a curious student.
+        Do not write markdown, headings, bullet points, numbered lists, host names, stage directions, JSON, code, code fences, or labels.
+        Do not mechanically read citations or equations. Paraphrase them naturally.
+        Explain the paper in this order, but without section headings: the big problem, the main idea, how the method works, what the experiments show, one important limitation, and the practical takeaway.
+        Use warm transitions like "Here is the big idea", "What makes this interesting is", and "A limitation to keep in mind is".
 
         Research Paper Title: {doc_title}
         Research Paper Text:
@@ -50,9 +42,7 @@ class PodcastService:
         """
 
         try:
-            model = genai.GenerativeModel(gemini.model_name)
-            response = model.generate_content(prompt)
-            narrative = response.text.strip()
+            narrative = PodcastService.clean_for_speech(gemini.generate_text(prompt))
             
             if not narrative:
                 raise ValueError("Failed to generate narrative script from LLM.")
@@ -70,3 +60,21 @@ class PodcastService:
         except Exception as e:
             logger.error(f"Failed to generate audio overview: {e}")
             raise e
+
+    @staticmethod
+    def clean_for_speech(text: str) -> str:
+        cleaned = text or ""
+        cleaned = re.sub(r"```[\s\S]*?```", " ", cleaned)
+        cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+        cleaned = cleaned.replace("**", "").replace("__", "")
+        cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*[-*+]\s+", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*\d+[\.\)]\s+", "", cleaned, flags=re.MULTILINE)
+        cleaned = re.sub(r"^\s*(hook|problem|method|results?|limitations?|takeaway|host\s*[ab]?|narrator)\s*:\s*", "", cleaned, flags=re.IGNORECASE | re.MULTILINE)
+        cleaned = re.sub(r"^\s*(hook|problem|method|results?|limitations?|takeaway)\s*$", "", cleaned, flags=re.IGNORECASE | re.MULTILINE)
+        cleaned = re.sub(r"\[(\d+)\]", r"reference \1", cleaned)
+        cleaned = re.sub(r"[#*_>{}\[\]|]+", " ", cleaned)
+        cleaned = re.sub(r"\s+([,.!?;:])", r"\1", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        return cleaned.strip()

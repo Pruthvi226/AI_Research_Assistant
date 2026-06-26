@@ -1,4 +1,4 @@
-__pycache__
+﻿__pycache__
 *.pyc
 venv
 uploads
@@ -6,3 +6,7 @@ indices
 .git
 .gitignore
 .dockerignore
+data
+*.log
+*.err.log
+.pytest_cache

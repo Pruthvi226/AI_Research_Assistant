@@ -1,6 +1,9 @@
 """
-Paper summarizer using HuggingFace BART model.
-Generates abstract and section-wise summaries.
+Paper summarization.
+
+The default path is extractive and fast so Docker can process uploads without
+downloading transformer weights. Set USE_TRANSFORMER_FALLBACK=true to enable
+the optional BART pipeline when transformers/torch are installed.
 """
 
 import re
@@ -15,24 +18,31 @@ except ImportError:
 
 
 class PaperSummarizer:
-    """
-    Summarizes research paper text using facebook/bart-large-cnn.
-    Produces overall abstract summary and optional section summaries.
-    """
+    """Produces overall and section-level summaries for research papers."""
+
+    KEY_TERMS = {
+        "method",
+        "model",
+        "approach",
+        "propose",
+        "result",
+        "dataset",
+        "experiment",
+        "accuracy",
+        "performance",
+        "contribution",
+        "limitation",
+        "future",
+    }
 
     def __init__(self, config: Optional[SummarizerConfig] = None):
-        """
-        Initialize summarizer. Model is loaded on first use.
-
-        Args:
-            config: SummarizerConfig instance. Uses default if not provided.
-        """
         self.config = config or SummarizerConfig()
         self._pipe = None
 
     @property
     def summarizer_pipeline(self):
-        """Lazy-load the HuggingFace summarization pipeline."""
+        if not self.config.USE_TRANSFORMER_FALLBACK:
+            raise RuntimeError("Transformer fallback is disabled.")
         if pipeline is None:
             raise ImportError("transformers required. pip install transformers torch")
         if self._pipe is None:
@@ -44,7 +54,6 @@ class PaperSummarizer:
         return self._pipe
 
     def _chunk_for_model(self, text: str, max_chars: int = 4000) -> List[str]:
-        """Split long text into chunks under max_chars for model input."""
         if len(text) <= max_chars:
             return [text] if text.strip() else []
         chunks = []
@@ -52,29 +61,47 @@ class PaperSummarizer:
         while start < len(text):
             end = start + max_chars
             if end < len(text):
-                # Break at sentence boundary
                 break_at = text.rfind(".", start, end)
                 if break_at > start:
                     end = break_at + 1
             chunks.append(text[start:end].strip())
             start = end
-        return [c for c in chunks if c]
+        return [chunk for chunk in chunks if chunk]
 
     def summarize_abstract(self, full_text: str) -> str:
-        """
-        Generate a short abstract-style summary of the full paper.
-
-        Args:
-            full_text: Full paper text (after removing references).
-
-        Returns:
-            Summary string.
-        """
         if not full_text or not full_text.strip():
             return ""
-        chunks = self._chunk_for_model(full_text)
+        if self.config.USE_TRANSFORMER_FALLBACK:
+            transformer_summary = self._try_transformer_abstract(full_text)
+            if transformer_summary:
+                return transformer_summary
+        return self._extractive_summary(full_text, max_sentences=5, max_chars=1100)
+
+    def summarize_sections(self, full_text: str) -> Dict[str, str]:
+        sections = self._detect_sections(full_text)
+        result = {}
+        for i, (title, start) in enumerate(sections[:12]):
+            end = sections[i + 1][1] if i + 1 < len(sections) else len(full_text)
+            section_text = full_text[start:end].strip()
+            if len(section_text.split()) < 30:
+                continue
+            if self.config.USE_TRANSFORMER_FALLBACK:
+                transformer_summary = self._try_transformer_section(section_text)
+                if transformer_summary:
+                    result[title] = transformer_summary
+                    continue
+            result[title] = self._extractive_summary(section_text, max_sentences=2, max_chars=450)
+        return result
+
+    def summarize(self, full_text: str) -> Dict[str, object]:
+        return {
+            "abstract": self.summarize_abstract(full_text),
+            "sections": self.summarize_sections(full_text),
+        }
+
+    def _try_transformer_abstract(self, full_text: str) -> str:
         summaries = []
-        for chunk in chunks[:3]:  # Limit to first 3 chunks to avoid token limit
+        for chunk in self._chunk_for_model(full_text)[:3]:
             try:
                 out = self.summarizer_pipeline(
                     chunk,
@@ -85,66 +112,70 @@ class PaperSummarizer:
                 if out and isinstance(out, list) and out[0].get("summary_text"):
                     summaries.append(out[0]["summary_text"])
             except Exception:
+                return ""
+        return " ".join(summaries).strip()
+
+    def _try_transformer_section(self, section_text: str) -> str:
+        try:
+            out = self.summarizer_pipeline(
+                section_text[:4000],
+                max_length=self.config.SECTION_SUMMARY_MAX_LENGTH,
+                min_length=20,
+                do_sample=False,
+            )
+            if out and isinstance(out, list) and out[0].get("summary_text"):
+                return out[0]["summary_text"]
+        except Exception:
+            return ""
+        return ""
+
+    def _extractive_summary(self, text: str, max_sentences: int, max_chars: int) -> str:
+        sentences = self._split_sentences(text)
+        if not sentences:
+            return text[:max_chars].strip()
+
+        scored = []
+        for idx, sentence in enumerate(sentences[:80]):
+            words = re.findall(r"[a-zA-Z][a-zA-Z0-9_\-]{2,}", sentence.lower())
+            if len(words) < 8:
                 continue
-        return " ".join(summaries).strip() if summaries else full_text[:500] + "..."
+            keyword_hits = sum(1 for word in words if word in self.KEY_TERMS)
+            position_bonus = max(0, 1.0 - (idx / max(1, min(len(sentences), 80))))
+            score = keyword_hits * 2 + min(len(words), 35) / 35 + position_bonus
+            scored.append((idx, score, sentence))
+
+        if not scored:
+            chosen = sentences[:max_sentences]
+        else:
+            chosen = [
+                item[2]
+                for item in sorted(
+                    sorted(scored, key=lambda item: item[1], reverse=True)[:max_sentences],
+                    key=lambda item: item[0],
+                )
+            ]
+        summary = " ".join(chosen).strip()
+        return summary[:max_chars].rsplit(" ", 1)[0].strip() + ("..." if len(summary) > max_chars else "")
 
     def _detect_sections(self, text: str) -> List[tuple]:
-        """Heuristic: find section headers (numbered or all-caps short lines)."""
         lines = text.split("\n")
-        sections = []  # (title, start_index in full text)
+        sections = []
         current_pos = 0
-        for i, line in enumerate(lines):
+        for line in lines:
             stripped = line.strip()
-            if not stripped:
-                current_pos += len(line) + 1
-                continue
-            # Common patterns: "1. Introduction", "2. Related Work", "ABSTRACT", "1 Introduction"
-            if re.match(r"^(\d+[\.\)]\s*)?[A-Z][a-zA-Z\s]{3,60}$", stripped):
-                if len(stripped) < 80 and stripped.upper() not in ("THE", "AND", "FOR"):
-                    sections.append((stripped, current_pos))
+            if stripped:
+                if re.match(r"^(\d+[\.\)]\s*)?[A-Z][a-zA-Z&\-\s]{3,70}$", stripped):
+                    if len(stripped) < 80 and stripped.upper() not in {"THE", "AND", "FOR"}:
+                        sections.append((stripped, current_pos))
             current_pos += len(line) + 1
+        if not sections:
+            sections = [("Overview", 0)]
         return sections
 
-    def summarize_sections(self, full_text: str) -> Dict[str, str]:
-        """
-        Generate a short summary per detected section.
-
-        Args:
-            full_text: Full paper text.
-
-        Returns:
-            Dict mapping section title to summary.
-        """
-        sections = self._detect_sections(full_text)
-        result = {}
-        for i, (title, start) in enumerate(sections):
-            end = sections[i + 1][1] if i + 1 < len(sections) else len(full_text)
-            section_text = full_text[start:end].strip()
-            if len(section_text.split()) < 30:
-                continue
-            try:
-                out = self.summarizer_pipeline(
-                    section_text[:4000],
-                    max_length=self.config.SECTION_SUMMARY_MAX_LENGTH,
-                    min_length=20,
-                    do_sample=False,
-                )
-                if out and isinstance(out, list) and out[0].get("summary_text"):
-                    result[title] = out[0]["summary_text"]
-            except Exception:
-                result[title] = section_text[:200] + "..."
-        return result
-
-    def summarize(self, full_text: str) -> Dict[str, str]:
-        """
-        Produce both abstract and section summaries.
-
-        Args:
-            full_text: Full paper text.
-
-        Returns:
-            Dict with keys "abstract" and "sections" (dict of section -> summary).
-        """
-        abstract = self.summarize_abstract(full_text)
-        sections = self.summarize_sections(full_text)
-        return {"abstract": abstract, "sections": sections}
+    @staticmethod
+    def _split_sentences(text: str) -> List[str]:
+        return [
+            sentence.strip()
+            for sentence in re.split(r"(?<=[.!?])\s+", text.replace("\r", " ").replace("\n", " "))
+            if sentence.strip()
+        ]

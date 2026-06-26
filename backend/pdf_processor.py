@@ -65,6 +65,28 @@ class PDFProcessor:
         except Exception as e:
             raise ValueError(f"Failed to extract text from PDF: {e}") from e
 
+    def extract_pages(self, pdf_path: str | Path) -> list:
+        """Extract cleaned text per page with 1-based page numbers."""
+        path = Path(pdf_path)
+        if not path.is_absolute():
+            path = self.upload_folder / path
+        if not path.exists():
+            raise FileNotFoundError(f"PDF not found: {path}")
+        if path.suffix.lower() != ".pdf":
+            raise ValueError("File must be a PDF")
+
+        try:
+            doc = fitz.open(path)
+            pages = []
+            for page_index, page in enumerate(doc, start=1):
+                text = self._clean_formatting(page.get_text())
+                if text:
+                    pages.append({"page": page_index, "text": text})
+            doc.close()
+            return pages
+        except Exception as e:
+            raise ValueError(f"Failed to extract pages from PDF: {e}") from e
+
     def _clean_formatting(self, text: str) -> str:
         """
         Clean extracted text: normalize whitespace, fix line breaks, remove excess newlines.

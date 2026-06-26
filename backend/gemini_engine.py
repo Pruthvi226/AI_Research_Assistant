@@ -1,10 +1,32 @@
 import json
 import logging
 from typing import Dict, Any, List, Optional
-import google.generativeai as genai
 from config import AIConfig
 
 logger = logging.getLogger(__name__)
+genai = None
+
+
+def _load_genai():
+    global genai
+    if genai is None:
+        import google.generativeai as loaded_genai
+        genai = loaded_genai
+    return genai
+
+
+def _clean_json_text(text: str) -> str:
+    cleaned_text = text.strip()
+    if cleaned_text.startswith("```"):
+        lines = cleaned_text.split("\n")
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned_text = "\n".join(lines).strip()
+        if cleaned_text.startswith("json"):
+            cleaned_text = cleaned_text[4:].strip()
+    return cleaned_text
 
 class GeminiEngine:
     """
@@ -24,11 +46,37 @@ class GeminiEngine:
         self._configured = False
         self._init_client()
 
+    @staticmethod
+    def is_valid_api_key(api_key: Optional[str]) -> bool:
+        """Reject blank/template keys before expensive cloud calls are attempted."""
+        key = (api_key or "").strip()
+        if not key:
+            return False
+        lowered = key.lower()
+        invalid_markers = (
+            "...",
+            "your_",
+            "your-",
+            "your ",
+            "placeholder",
+            "change_me",
+            "change-in-production",
+            "example",
+        )
+        return not any(marker in lowered for marker in invalid_markers)
+
+    @staticmethod
+    def mask_api_key(api_key: Optional[str]) -> str:
+        key = (api_key or "").strip()
+        if not GeminiEngine.is_valid_api_key(key):
+            return ""
+        return f"{key[:6]}...{key[-4:]}" if len(key) > 10 else "********"
+
     def _init_client(self):
         """Configure the genai client if a key is available."""
-        if self.api_key:
+        if self.is_valid_api_key(self.api_key):
             try:
-                genai.configure(api_key=self.api_key)
+                _load_genai().configure(api_key=self.api_key)
                 self._configured = True
             except Exception as e:
                 logger.error(f"Failed to configure Gemini client: {e}")
@@ -40,6 +88,26 @@ class GeminiEngine:
     def is_available(self) -> bool:
         """Return True if the Gemini API client is configured successfully."""
         return self._configured
+
+    def generate_text(self, prompt: str, json_mode: bool = False) -> str:
+        """Generate raw text from Gemini, optionally requesting JSON mode."""
+        if not self.is_available:
+            raise ValueError("Gemini API key is not configured. Please supply a valid API key in Settings.")
+        try:
+            model = _load_genai().GenerativeModel(self.model_name)
+            kwargs = {}
+            if json_mode:
+                kwargs["generation_config"] = {"response_mime_type": "application/json"}
+            response = model.generate_content(prompt, **kwargs)
+            return response.text.strip()
+        except Exception as e:
+            logger.error(f"Gemini generation failed: {e}")
+            raise ValueError(f"Gemini generation failed: {str(e)}")
+
+    def generate_json(self, prompt: str) -> Dict[str, Any]:
+        """Generate JSON and parse it defensively."""
+        cleaned_text = _clean_json_text(self.generate_text(prompt, json_mode=True))
+        return json.loads(cleaned_text)
 
     def generate_summary_and_insights(self, text: str) -> Dict[str, Any]:
         """
@@ -119,25 +187,7 @@ class GeminiEngine:
         """
 
         try:
-            model = genai.GenerativeModel(self.model_name)
-            response = model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
-            )
-            
-            cleaned_text = response.text.strip()
-            # Simple markdown JSON fence block cleaning if the model ignores instruction
-            if cleaned_text.startswith("```"):
-                lines = cleaned_text.split("\n")
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines[-1].startswith("```"):
-                    lines = lines[:-1]
-                cleaned_text = "\n".join(lines).strip()
-                if cleaned_text.startswith("json"):
-                    cleaned_text = cleaned_text[4:].strip()
-
-            return json.loads(cleaned_text)
+            return self.generate_json(prompt)
         except Exception as e:
             logger.error(f"Failed to generate summaries via Gemini: {e}")
             raise ValueError(f"Failed to analyze paper via Gemini: {str(e)}")
@@ -174,9 +224,7 @@ class GeminiEngine:
         """
 
         try:
-            model = genai.GenerativeModel(self.model_name)
-            response = model.generate_content(prompt)
-            return response.text.strip()
+            return self.generate_text(prompt)
         except Exception as e:
             logger.error(f"Failed to answer question via Gemini: {e}")
             raise ValueError(f"Failed to answer question via Gemini: {str(e)}")

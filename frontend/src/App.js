@@ -20,6 +20,7 @@ const App = () => {
   const [loadingPaper, setLoadingPaper] = useState(false);
   const [error, setError] = useState(null);
   const [apiSettings, setApiSettings] = useState({ has_key: false, masked_key: '' });
+  const [uploadJob, setUploadJob] = useState(null);
 
   // Comparative Synthesis States
   const [synthesisData, setSynthesisData] = useState(null);
@@ -28,7 +29,7 @@ const App = () => {
   // 1. Fetch all documents from the backend
   const fetchDocuments = useCallback(async () => {
     try {
-      const res = await axios.get('/documents');
+      const res = await axios.get('/api/documents');
       setPapers(res.data.documents || []);
     } catch (err) {
       console.error('Failed to load documents:', err);
@@ -38,7 +39,7 @@ const App = () => {
   // 2. Fetch API Key configurations from backend
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await axios.get('/settings');
+      const res = await axios.get('/api/settings');
       setApiSettings(res.data || { has_key: false, masked_key: '' });
     } catch (err) {
       console.error('Failed to fetch settings:', err);
@@ -56,7 +57,7 @@ const App = () => {
     setLoadingPaper(true);
     setError(null);
     try {
-      const res = await axios.get(`/documents/${docId}`);
+      const res = await axios.get(`/api/documents/${docId}`);
       setActivePaper(res.data);
       // Auto redirect to Research Lab split pane
       setActiveTab('research');
@@ -72,7 +73,7 @@ const App = () => {
   const handleDeletePaper = async (docId) => {
     if (!window.confirm("Are you sure you want to delete this document and its chat history?")) return;
     try {
-      await axios.delete(`/documents/${docId}`);
+      await axios.delete(`/api/documents/${docId}`);
       if (activePaper?.session_id === docId || activePaper?.session_id?.split(',').includes(docId)) {
         setActivePaper(null);
       }
@@ -87,21 +88,45 @@ const App = () => {
   const handleUploadPaper = async (file) => {
     setLoadingPaper(true);
     setError(null);
+    setUploadJob(null);
     const formData = new FormData();
     formData.append('file', file);
 
     try {
-      const res = await axios.post('/upload', formData, {
+      const res = await axios.post('/api/upload/pdf', formData, {
+        params: { async: true },
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setActivePaper(res.data);
-      fetchDocuments(); // Reload documents list
-      setActiveTab('research'); // Slide into Research insights
+      if (!res.data.job_id) {
+        setActivePaper(res.data);
+        await fetchDocuments();
+        setActiveTab('research');
+        return;
+      }
+
+      let finalJob = { id: res.data.job_id, status: 'queued', progress: 0, message: res.data.message };
+      setUploadJob(finalJob);
+      for (let attempt = 0; attempt < 240; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const jobRes = await axios.get(`/api/jobs/${res.data.job_id}`);
+        finalJob = jobRes.data.job;
+        setUploadJob(finalJob);
+        if (finalJob.status === 'done' || finalJob.status === 'failed') break;
+      }
+
+      if (finalJob.status !== 'done') {
+        throw new Error(finalJob.error || 'PDF processing did not complete. Please try again.');
+      }
+
+      setActivePaper(finalJob.result);
+      await fetchDocuments();
+      setActiveTab('research');
     } catch (err) {
       const msg = err.response?.data?.error || err.message || 'Upload and processing failed';
       setError(msg);
     } finally {
       setLoadingPaper(false);
+      setUploadJob(null);
     }
   };
 
@@ -157,6 +182,7 @@ const App = () => {
             onDelete={handleDeletePaper}
             onUpload={handleUploadPaper}
             loading={loadingPaper}
+            uploadJob={uploadJob}
             onSynthesize={handleSynthesize}
           />
         );
@@ -207,17 +233,18 @@ const App = () => {
         return (
           <main className="flex-1 flex overflow-hidden relative">
             {/* Left chat panel (Full-screen in chat mode, half-screen in split research mode) */}
-            <div className={`flex-1 h-full transition-all duration-500 ease-in-out ${activeTab === 'chat' ? 'w-full' : 'w-1/2'}`}>
+            <div className={`h-full transition-all duration-500 ease-in-out ${activeTab === 'chat' ? 'w-full flex-1' : 'hidden lg:block lg:w-1/2'}`}>
               <ChatPanel 
                 activePaper={activePaper}
                 onUpload={handleUploadPaper}
                 loading={loadingPaper}
+                uploadJob={uploadJob}
               />
             </div>
             
             {/* Right side insights panel in Research Lab split mode */}
             {activeTab === 'research' && (
-              <div className="w-1/2 border-l border-white/10 h-full overflow-hidden animate-in slide-in-from-right duration-500 bg-[#0f0f12]">
+              <div className="w-full lg:w-1/2 border-l border-white/10 h-full overflow-hidden animate-in slide-in-from-right duration-500 bg-[#0f0f12]">
                 <ResearchPanel 
                   activePaper={activePaper} 
                   loading={loadingPaper}
@@ -243,7 +270,7 @@ const App = () => {
       <div className="flex-1 flex flex-col overflow-hidden relative">
         {/* Error notification header */}
         {error && (
-          <div className="absolute top-4 right-4 z-50 max-w-md bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-xl flex items-center justify-between shadow-2xl backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="absolute top-4 left-4 right-4 md:left-auto z-50 max-w-md bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-xl flex items-center justify-between shadow-2xl backdrop-blur-xl animate-in fade-in duration-300">
             <span className="text-sm font-medium mr-4">{error}</span>
             <button 
               onClick={() => setError(null)} 

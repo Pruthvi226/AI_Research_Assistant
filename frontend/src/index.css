@@ -29,7 +29,7 @@ h1, h2, h3, h4 {
 }
 
 .sidebar-item {
-  @apply flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 hover:bg-white/5 text-slate-400 hover:text-white cursor-pointer;
+  @apply flex items-center gap-3 px-3 lg:px-4 py-3 rounded-xl transition-all duration-200 hover:bg-white/5 text-slate-400 hover:text-white cursor-pointer;
 }
 
 .sidebar-item-active {
@@ -46,6 +46,16 @@ h1, h2, h3, h4 {
 
 .chat-bubble-user {
   @apply bg-[#16161a] p-4 max-w-[85%] ml-auto rounded-2xl border border-white/5;
+}
+
+.no-scrollbar,
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar,
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 ::-webkit-scrollbar {
@@ -94,6 +104,5 @@ h1, h2, h3, h4 {
 .visualizer-bar:nth-child(3) { animation-delay: 0.2s; height: 20px; }
 .visualizer-bar:nth-child(4) { animation-delay: 0.5s; height: 28px; }
 .visualizer-bar:nth-child(5) { animation-delay: 0.4s; height: 18px; }
-
 
 

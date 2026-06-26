@@ -4,23 +4,25 @@
 # Web
 flask>=3.0.0
 flask-cors>=4.0.0
+waitress>=3.0.0
+werkzeug>=3.0.0
+python-dotenv>=1.0.0
 
 # PDF
 pymupdf>=1.23.0
 
-# Embeddings & search
-sentence-transformers>=2.2.0
-faiss-cpu>=1.7.4
+# OCR and image uploads
+pillow>=10.0.0
+pytesseract>=0.3.10
+
+# Vector/RAG. FAISS and sentence-transformers are optional at runtime;
+# the app falls back to lexical search if they are unavailable.
 numpy>=1.24.0
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.2
 
-# NLP / summarization & Advanced AI
+# Cloud AI and audio features
 google-generativeai>=0.5.0
-pydantic>=2.0.0
 gTTS>=2.3.0
-transformers>=4.30.0
-torch>=2.0.0
-accelerate>=0.20.0
-
-# Utilities
-werkzeug>=3.0.0
+pyttsx3>=2.90
 

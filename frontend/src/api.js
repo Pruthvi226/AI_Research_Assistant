@@ -6,18 +6,22 @@
 import axios from 'axios';
 
 const API_BASE = process.env.REACT_APP_API_URL || '';
+const API_TIMEOUT_MS = 300000;
+
+axios.defaults.baseURL = API_BASE;
+axios.defaults.timeout = API_TIMEOUT_MS;
 
 const api = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
-  timeout: 120000, // 2 min for upload + processing
+  timeout: API_TIMEOUT_MS, // uploads and paper analysis can be long-running
 });
 
 /**
  * Health check
  */
 export async function healthCheck() {
-  const { data } = await api.get('/health');
+  const { data } = await api.get('/api/health');
   return data;
 }
 
@@ -29,7 +33,7 @@ export async function healthCheck() {
 export async function uploadPaper(file) {
   const formData = new FormData();
   formData.append('file', file);
-  const { data } = await api.post('/upload', formData, {
+  const { data } = await api.post('/api/upload/pdf', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return data;
@@ -41,7 +45,7 @@ export async function uploadPaper(file) {
  * @param {string} [sessionId]
  */
 export async function askQuestion(question, sessionId = '') {
-  const { data } = await api.post('/ask', { question, session_id: sessionId });
+  const { data } = await api.post('/api/chat', { question, session_id: sessionId });
   return data;
 }
 
@@ -50,7 +54,7 @@ export async function askQuestion(question, sessionId = '') {
  * @param {string} sessionId
  */
 export async function getHistory(sessionId) {
-  const { data } = await api.get('/history', { params: { session_id: sessionId } });
+  const { data } = await api.get('/api/history', { params: { session_id: sessionId } });
   return data;
 }
 

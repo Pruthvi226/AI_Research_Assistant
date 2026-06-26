@@ -1,21 +1,52 @@
-# Dependency directories
+﻿# Dependency directories
 node_modules/
 frontend/node_modules/
 
-# Python environments & caches
+# Python environments and caches
 __pycache__/
-backend/__pycache__/
+**/__pycache__/
+.pytest_cache/
+backend/.pytest_cache/
 *.pyc
 venv/
 backend/venv/
 
-# Local databases and indexes
+# Local verification/build output
+.codex-test/
+frontend/build/
+frontend/build-test/
+
+# Local databases, uploads, indexes, and generated artifacts
 *.sqlite
+*.db
+*.db-*
 uploads/
 backend/uploads/
 indices/
 backend/indices/
+backend/data/uploads/*
+backend/data/faiss_index/*
+backend/data/generated_audio/*
+backend/data/generated_code/*
+backend/data/generated_markdown/*
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.db-*
+!backend/data/uploads/.gitkeep
+!backend/data/faiss_index/.gitkeep
+!backend/data/generated_audio/.gitkeep
+!backend/data/generated_code/.gitkeep
+!backend/data/generated_markdown/.gitkeep
+
+# Logs
+*.log
+*.err.log
+backend/*-server.log
+backend/*-server.err.log
+frontend/*-server.log
+frontend/*-server.err.log
 
 # Environment configurations
 .env
 backend/.env
+frontend/.env
