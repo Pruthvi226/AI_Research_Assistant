@@ -112,6 +112,8 @@ def sensitive_route_requires_admin() -> bool:
     path = request.path.rstrip("/") or "/"
     if path in SENSITIVE_EXACT_PATHS:
         return True
+    if request.method == "GET" and path.startswith("/api/jobs/"):
+        return False
     if any(path.startswith(prefix) for prefix in SENSITIVE_PREFIXES):
         return True
     if request.method == "DELETE" and (path.startswith("/documents/") or path.startswith("/api/documents/")):

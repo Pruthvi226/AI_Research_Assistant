@@ -31,6 +31,18 @@ class AppSecurityTest(unittest.TestCase):
         self.assertEqual('admin_auth_required', blocked.get_json().get('code'))
         self.assertEqual(200, allowed.status_code)
 
+    def test_job_detail_polling_is_allowed_but_job_list_is_admin_only(self):
+        app_module.FlaskConfig.REQUIRE_ADMIN_AUTH = True
+        app_module.FlaskConfig.ADMIN_API_KEY = 'test-admin-key'
+
+        list_response = self.client.get('/api/jobs')
+        detail_response = self.client.get('/api/jobs/missing-job-id')
+
+        self.assertEqual(401, list_response.status_code)
+        self.assertEqual('admin_auth_required', list_response.get_json().get('code'))
+        self.assertEqual(404, detail_response.status_code)
+
+
 
 if __name__ == '__main__':
     unittest.main()

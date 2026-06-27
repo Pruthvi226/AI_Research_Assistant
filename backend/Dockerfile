@@ -35,9 +35,9 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy and install python dependencies
-COPY requirements.txt .
+COPY requirements_docker.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements_docker.txt
 
 # Copy source code
 COPY . .

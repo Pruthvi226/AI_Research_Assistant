@@ -1,7 +1,9 @@
-﻿services:
+services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
     container_name: scientia-backend
+    init: true
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -19,8 +21,13 @@
       - scientia-network
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_API_URL: ""
+        REACT_APP_ADMIN_API_KEY: ""
     container_name: scientia-frontend
+    init: true
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -28,7 +35,7 @@
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

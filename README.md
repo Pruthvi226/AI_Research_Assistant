@@ -86,6 +86,8 @@ DATABASE_URL=sqlite:////app/data/scientia.db
 
 The app runs without Gemini or GitHub tokens, but those features will use local or reduced-capability fallback behavior.
 
+Docker uses `backend/requirements_docker.txt`, a lightweight runtime dependency set that intentionally skips FAISS/sentence-transformers/Torch. Container deployments default to lexical retrieval; install the optional semantic stack only when you explicitly enable `USE_SEMANTIC_EMBEDDINGS=true`.
+
 ### 2. Deploy With Docker Compose
 
 ```bash
