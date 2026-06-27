@@ -1,4 +1,4 @@
-﻿"""
+"""
 Configuration settings for the AI Research Assistant backend.
 Centralizes all configurable parameters for the application.
 """
@@ -70,6 +70,9 @@ class FlaskConfig:
         ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"],
     )
     REQUEST_ID_HEADER = os.environ.get("REQUEST_ID_HEADER", "X-Request-ID")
+    ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "").strip()
+    REQUIRE_ADMIN_AUTH = _bool_env("REQUIRE_ADMIN_AUTH", ENVIRONMENT.lower() == "production")
+    SECURITY_HEADERS_ENABLED = _bool_env("SECURITY_HEADERS_ENABLED", True)
     UPLOAD_EXTENSIONS = {".pdf"}
     ALLOWED_EXTENSIONS = {"pdf"}
     DATABASE_URI = _sqlite_path_from_url(
@@ -94,6 +97,8 @@ def validate_runtime_environment() -> list:
         warnings.append("GEMINI_API_KEY is not set; cloud LLM features will use local fallbacks.")
     if not os.environ.get("GITHUB_TOKEN"):
         warnings.append("GITHUB_TOKEN is not set; GitHub API rate limits may be lower.")
+    if FlaskConfig.REQUIRE_ADMIN_AUTH and not FlaskConfig.ADMIN_API_KEY:
+        warnings.append("REQUIRE_ADMIN_AUTH is enabled but ADMIN_API_KEY is not set; sensitive API routes will reject requests.")
     for folder_name, folder in {
         "DATA_FOLDER": DATA_FOLDER,
         "UPLOAD_FOLDER": UPLOAD_FOLDER,

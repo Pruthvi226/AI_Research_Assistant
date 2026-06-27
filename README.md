@@ -15,9 +15,12 @@ The project is built to show both product capability and system-design maturity:
 - PDF ingestion with page-aware chunks, references, markdown export, and persisted document workspaces.
 - Source-grounded chat with lexical retrieval by default and optional FAISS/sentence-transformers semantic retrieval.
 - Gemini integration with local extractive fallback so demos still work without cloud keys.
+- Semantic keyboard workflow for explicit agent selection, accessible tabs/buttons, and keyboard-visible focus states.
+- Admin-sensitive APIs can be protected with an `X-Admin-Key` header or `admin_api_key` cookie.
 - Async PDF processing with bounded in-process jobs, progress polling, retention limits, and `429 job_queue_full` backpressure.
 - Operational endpoints for health, readiness, metrics, request IDs, and response timing.
 - React dashboard with upload, chat, source panels, agent badges, generated outputs, and settings.
+- Security headers for Flask and Nginx deployments, plus prompt-hardening for retrieved paper context.
 - Docker Compose deployment with Nginx frontend, Waitress backend, and mounted data volume.
 - CI and local verification gates for backend syntax, unit tests, smoke checks, and frontend production builds.
 
@@ -76,6 +79,8 @@ Minimum useful values:
 SECRET_KEY=replace_with_a_strong_secret
 GEMINI_API_KEY=your_optional_gemini_key
 GITHUB_TOKEN=your_optional_github_token
+ADMIN_API_KEY=replace_with_admin_key_for_settings_and_logs
+REQUIRE_ADMIN_AUTH=true
 DATABASE_URL=sqlite:////app/data/scientia.db
 ```
 
@@ -140,11 +145,20 @@ Frontend production build without touching the checked-in working tree:
 
 ```powershell
 cd frontend
-$env:BUILD_PATH="../.codex-test/frontend-build"
+$env:BUILD_PATH="../.codex-test/frontend-build-$(Get-Date -Format yyyyMMddHHmmss)"
 npm run build
 ```
 
+On Windows, using a fresh `BUILD_PATH` avoids failures when a previous `frontend/build` artifact is locked by a running dev server or file watcher.
+
 CI runs equivalent backend checks and a frontend production build through `.github/workflows/ci.yml`.
+
+Latest local validation performed through the public app/API:
+
+- Backend tests: `14 passed`
+- Frontend production build: passed with a fresh `.codex-test/frontend-build-*` output folder
+- Black-box app flow: PDF upload, document fetch, RAG chat, history, markdown export, code generation, podcast script, citation analysis, equation text, equation image fallback, GitHub matcher, generated-output download, and negative input handling
+- Image equation uploads degrade gracefully when OCR dependencies are missing if equation text is supplied, returning an `ocr_warning` instead of a server error
 
 ## Core API
 

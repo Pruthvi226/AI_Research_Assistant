@@ -1,8 +1,9 @@
-﻿import os
+import os
 import uuid
 import logging
 import time
 import json
+import hmac
 from pathlib import Path
 from flask import Flask, jsonify, request, send_file, send_from_directory, g
 from flask_cors import CORS
@@ -95,10 +96,57 @@ for env_warning in validate_runtime_environment():
     logger.warning(env_warning)
 
 
+SENSITIVE_EXACT_PATHS = {
+    "/settings",
+    "/api/settings",
+    "/api/agent-logs",
+}
+SENSITIVE_PREFIXES = (
+    "/api/generated-outputs",
+    "/api/jobs",
+    "/api/generated-audio",
+)
+
+
+def sensitive_route_requires_admin() -> bool:
+    path = request.path.rstrip("/") or "/"
+    if path in SENSITIVE_EXACT_PATHS:
+        return True
+    if any(path.startswith(prefix) for prefix in SENSITIVE_PREFIXES):
+        return True
+    if request.method == "DELETE" and (path.startswith("/documents/") or path.startswith("/api/documents/")):
+        return True
+    if path.startswith("/api/documents/") and path.endswith("/export/markdown"):
+        return True
+    return False
+
+
+def provided_admin_key() -> str:
+    return (
+        request.headers.get("X-Admin-Key")
+        or request.cookies.get("scientia_admin")
+        or request.args.get("admin_key")
+        or ""
+    ).strip()
+
+
+
 @app.before_request
 def start_request_context():
     g.request_id = request.headers.get(FlaskConfig.REQUEST_ID_HEADER) or str(uuid.uuid4())
     g.request_started_at = time.perf_counter()
+
+
+@app.before_request
+def enforce_admin_api_auth():
+    if not FlaskConfig.REQUIRE_ADMIN_AUTH or not sensitive_route_requires_admin():
+        return None
+    expected = FlaskConfig.ADMIN_API_KEY
+    if not expected:
+        return api_error("Admin API protection is enabled but ADMIN_API_KEY is not configured.", 503, "admin_auth_not_configured")
+    if not hmac.compare_digest(provided_admin_key(), expected):
+        return api_error("Admin credentials are required for this endpoint.", 401, "admin_auth_required")
+    return None
 
 
 @app.before_request
@@ -112,6 +160,24 @@ def enforce_api_rate_limit():
 
 @app.after_request
 def attach_operational_headers(response):
+    if FlaskConfig.SECURITY_HEADERS_ENABLED:
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            "script-src 'self' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: blob:; "
+            "media-src 'self' blob:; "
+            "connect-src 'self' http://localhost:5000 http://127.0.0.1:5000; "
+            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        )
+        if FlaskConfig.ENVIRONMENT.lower() == "production":
+            response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     request_id = getattr(g, "request_id", "")
     if request_id:
         response.headers[FlaskConfig.REQUEST_ID_HEADER] = request_id

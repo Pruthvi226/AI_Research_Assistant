@@ -21,18 +21,24 @@ const Sidebar = ({ activeTab, setActiveTab, activePaper, onEjectPaper }) => {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-2">
-        {menuItems.map((item) => (
-          <div
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            title={item.label}
-            className={`sidebar-item justify-center lg:justify-start ${activeTab === item.id ? 'sidebar-item-active' : ''}`}
-          >
-            <item.icon size={20} />
-            <span className="hidden lg:inline font-medium">{item.label}</span>
-          </div>
-        ))}
+      <nav className="flex-1 space-y-2" aria-label="Primary workspace">
+        {menuItems.map((item) => {
+          const isActive = activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setActiveTab(item.id)}
+              title={item.label}
+              aria-label={item.label}
+              aria-current={isActive ? 'page' : undefined}
+              className={`sidebar-item w-full justify-center lg:justify-start ${isActive ? 'sidebar-item-active' : ''}`}
+            >
+              <item.icon size={20} aria-hidden="true" />
+              <span className="hidden lg:inline font-medium">{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* Active Paper Indicator */}
@@ -46,25 +52,30 @@ const Sidebar = ({ activeTab, setActiveTab, activePaper, onEjectPaper }) => {
             <p className="text-[9px] text-slate-500 font-medium uppercase mt-0.5">Active Workspace</p>
           </div>
           <button 
+            type="button"
             onClick={onEjectPaper} 
-            title="Eject active paper" 
+            title="Eject active paper"
+            aria-label="Eject active paper"
             className="hidden lg:block p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white transition-colors"
           >
-            <X size={14} />
+            <X size={14} aria-hidden="true" />
           </button>
         </div>
       )}
 
       {/* Footer controls */}
       <div className="pt-6 border-t border-white/10 space-y-2">
-        <div 
+        <button 
+          type="button"
           onClick={() => setActiveTab('settings')}
           title="Settings"
-          className={`sidebar-item justify-center lg:justify-start ${activeTab === 'settings' ? 'sidebar-item-active' : ''}`}
+          aria-label="Settings"
+          aria-current={activeTab === 'settings' ? 'page' : undefined}
+          className={`sidebar-item w-full justify-center lg:justify-start ${activeTab === 'settings' ? 'sidebar-item-active' : ''}`}
         >
-          <Settings size={20} />
+          <Settings size={20} aria-hidden="true" />
           <span className="hidden lg:inline">Settings</span>
-        </div>
+        </button>
       </div>
     </aside>
   );

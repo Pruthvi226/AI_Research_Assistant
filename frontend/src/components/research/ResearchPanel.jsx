@@ -50,6 +50,112 @@ const parseMarkdownTable = (markdown) => {
   );
 };
 
+const tokenizeMathExpression = (expression) => {
+  const tokens = [];
+  let index = 0;
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (/[+\-*/()]/.test(char)) {
+      tokens.push({ type: char, value: char });
+      index += 1;
+      continue;
+    }
+    if (/[0-9.]/.test(char)) {
+      let end = index + 1;
+      while (end < expression.length && /[0-9.]/.test(expression[end])) end += 1;
+      const value = Number(expression.slice(index, end));
+      if (!Number.isFinite(value)) throw new Error('Invalid number');
+      tokens.push({ type: 'number', value });
+      index = end;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(char)) {
+      let end = index + 1;
+      while (end < expression.length && /[A-Za-z0-9_]/.test(expression[end])) end += 1;
+      tokens.push({ type: 'identifier', value: expression.slice(index, end) });
+      index = end;
+      continue;
+    }
+    throw new Error('Unsupported character');
+  }
+  return tokens;
+};
+
+const evaluateSafeMathExpression = (expression, variablesObject) => {
+  const tokens = tokenizeMathExpression(String(expression || ''));
+  let cursor = 0;
+
+  const peek = () => tokens[cursor];
+  const consume = (type) => {
+    const token = peek();
+    if (!token || token.type !== type) throw new Error(`Expected ${type}`);
+    cursor += 1;
+    return token;
+  };
+
+  const parseFactor = () => {
+    const token = peek();
+    if (!token) throw new Error('Unexpected end of expression');
+    if (token.type === '+') {
+      consume('+');
+      return parseFactor();
+    }
+    if (token.type === '-') {
+      consume('-');
+      return -parseFactor();
+    }
+    if (token.type === 'number') {
+      cursor += 1;
+      return token.value;
+    }
+    if (token.type === 'identifier') {
+      cursor += 1;
+      if (!Object.prototype.hasOwnProperty.call(variablesObject, token.value)) {
+        throw new Error(`Unknown variable ${token.value}`);
+      }
+      const value = Number(variablesObject[token.value]);
+      if (!Number.isFinite(value)) throw new Error(`Invalid variable ${token.value}`);
+      return value;
+    }
+    if (token.type === '(') {
+      consume('(');
+      const value = parseExpression();
+      consume(')');
+      return value;
+    }
+    throw new Error('Invalid expression');
+  };
+
+  const parseTerm = () => {
+    let value = parseFactor();
+    while (peek() && ['*', '/'].includes(peek().type)) {
+      const operator = consume(peek().type).type;
+      const next = parseFactor();
+      value = operator === '*' ? value * next : value / next;
+      if (!Number.isFinite(value)) throw new Error('Invalid arithmetic result');
+    }
+    return value;
+  };
+
+  function parseExpression() {
+    let value = parseTerm();
+    while (peek() && ['+', '-'].includes(peek().type)) {
+      const operator = consume(peek().type).type;
+      const next = parseTerm();
+      value = operator === '+' ? value + next : value - next;
+      if (!Number.isFinite(value)) throw new Error('Invalid arithmetic result');
+    }
+    return value;
+  }
+
+  const result = parseExpression();
+  if (cursor !== tokens.length) throw new Error('Unexpected trailing input');
+  return result;
+};
 const ResearchPanel = ({ activePaper, loading }) => {
   const [activeTab, setActiveTab] = useState('summary');
   const [copiedSection, setCopiedSection] = useState(null);
@@ -160,17 +266,8 @@ const ResearchPanel = ({ activePaper, loading }) => {
   const evaluateExpression = (expression, variablesObject) => {
     if (!expression || !variablesObject) return "0";
     try {
-      let evaluated = expression;
-      const keys = Object.keys(variablesObject).sort((a, b) => b.length - a.length);
-      keys.forEach(key => {
-        evaluated = evaluated.replaceAll(key, String(variablesObject[key]));
-      });
-      // Simple custom safe mathematical sanitizer to prevent non-math commands execution
-      if (/[^0-9\+\-\*\/\(\)\.\s]/.test(evaluated.replace(/[a-zA-Z]/g, ''))) {
-        return "Invalid";
-      }
-      const result = new Function(`return ${evaluated}`)();
-      return isNaN(result) ? "0.00" : Number(result).toFixed(3);
+      const result = evaluateSafeMathExpression(expression, variablesObject);
+      return Number.isFinite(result) ? Number(result).toFixed(3) : "Invalid";
     } catch (err) {
       return "Error";
     }
@@ -371,38 +468,62 @@ const ResearchPanel = ({ activePaper, loading }) => {
     <div ref={panelRef} className="h-full flex flex-col bg-[#0f0f12]">
       {/* Sticky top tab bar */}
       <div className="px-6 pt-6 pb-2 border-b border-white/5 flex items-center justify-between shrink-0 bg-[#0f0f12]">
-        <div className="flex gap-4 overflow-x-auto no-scrollbar">
+        <div className="flex gap-4 overflow-x-auto no-scrollbar" role="tablist" aria-label="Research detail sections">
           <button 
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'summary'}
+            aria-controls="research-panel-content"
             onClick={() => setActiveTab('summary')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'summary' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
             Summary
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'sources'}
+            aria-controls="research-panel-content"
             onClick={() => setActiveTab('sources')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'sources' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
             Sources
           </button>
           <button 
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'equations'}
+            aria-controls="research-panel-content"
             onClick={() => setActiveTab('equations')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'equations' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
             Equation
           </button>
           <button 
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'code'}
+            aria-controls="research-panel-content"
             onClick={() => setActiveTab('code')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'code' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
             Code
           </button>
           <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'podcast'}
+            aria-controls="research-panel-content"
             onClick={() => setActiveTab('podcast')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'podcast' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
             Podcast
           </button>
           <button 
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'insights'}
+            aria-controls="research-panel-content"
             onClick={() => setActiveTab('insights')}
             className={`pb-3 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all shrink-0 ${activeTab === 'insights' ? 'border-indigo-500 text-indigo-400' : 'border-transparent text-slate-400 hover:text-white'}`}
           >
@@ -431,7 +552,7 @@ const ResearchPanel = ({ activePaper, loading }) => {
       </div>
 
       {/* Dynamic Tab Renderer */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6 pb-20">
+      <div id="research-panel-content" className="flex-1 overflow-y-auto p-6 space-y-6 pb-20">
         
         {activeTab === 'summary' && (
           <div className="space-y-6">
@@ -443,8 +564,10 @@ const ResearchPanel = ({ activePaper, loading }) => {
                     <FileText size={12} /> Synthesized Abstract
                   </h4>
                   <button 
+                    type="button"
                     onClick={() => handleCopy(activePaper.summary.abstract, 'abstract')}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/5 text-slate-500 hover:text-white transition-all"
+                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-white/5 text-slate-500 hover:text-white transition-all"
+                    aria-label="Copy abstract"
                   >
                     {copiedSection === 'abstract' ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
                   </button>
@@ -576,19 +699,23 @@ const ResearchPanel = ({ activePaper, loading }) => {
                       key={title} 
                       className={`glass-panel border-white/5 transition-all ${isExpanded ? 'bg-white/[0.02] border-indigo-500/20' : 'bg-white/[0.005]'}`}
                     >
-                      <div 
+                      <button 
+                        type="button"
                         onClick={() => setExpandedSection(isExpanded ? null : title)}
-                        className="p-4 flex items-center justify-between cursor-pointer select-none"
+                        className="w-full p-4 flex items-center justify-between cursor-pointer select-none text-left"
+                        aria-expanded={isExpanded}
                       >
                         <span className="text-xs font-semibold text-slate-200">{title}</span>
-                        <ChevronDown size={14} className={`text-slate-500 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-400' : ''}`} />
-                      </div>
+                        <ChevronDown size={14} aria-hidden="true" className={`text-slate-500 transition-transform duration-300 ${isExpanded ? 'rotate-180 text-indigo-400' : ''}`} />
+                      </button>
                       
                       {isExpanded && (
                         <div className="px-4 pb-4 border-t border-white/5 pt-3 animate-in fade-in duration-200 relative group">
                           <button 
+                            type="button"
                             onClick={() => handleCopy(text, title)}
-                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/5 text-slate-500 hover:text-white transition-all"
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded hover:bg-white/5 text-slate-500 hover:text-white transition-all"
+                            aria-label={`Copy ${title} section summary`}
                           >
                             {copiedSection === title ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
                           </button>

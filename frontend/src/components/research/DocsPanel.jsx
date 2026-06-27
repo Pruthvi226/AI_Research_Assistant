@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { BookOpen, FileText, Trash2, ArrowRight, Search, Plus, Sparkles, CheckSquare, Square } from 'lucide-react';
 
 const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading, uploadJob, onSynthesize }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedIds, setSelectedIds] = useState([]);
+  const fileInputRef = useRef(null);
 
   // Filter papers by search query
   const filteredPapers = papers.filter(p => 
@@ -39,23 +40,31 @@ const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading,
           {/* Synthesize comparison button (Visible when >= 2 papers checked) */}
           {selectedIds.length >= 2 && (
             <button
+              type="button"
               onClick={() => onSynthesize(selectedIds)}
               className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-xl text-xs font-semibold cursor-pointer shadow-lg shadow-indigo-600/30 animate-pulse transition-all shrink-0"
             >
-              <Sparkles size={14} /> Compare Selected ({selectedIds.length})
+              <Sparkles size={14} aria-hidden="true" /> Compare Selected ({selectedIds.length})
             </button>
           )}
 
-          <label className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl text-xs font-semibold cursor-pointer transition-all shrink-0">
-            <Plus size={14} /> Upload Paper
-            <input 
-              type="file" 
-              onChange={handleFileChange} 
-              accept=".pdf" 
-              disabled={loading}
-              className="hidden" 
-            />
-          </label>
+          <input 
+            ref={fileInputRef}
+            type="file" 
+            onChange={handleFileChange} 
+            accept=".pdf" 
+            disabled={loading}
+            className="sr-only" 
+            aria-label="Upload PDF paper"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-xl text-xs font-semibold cursor-pointer transition-all shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus size={14} aria-hidden="true" /> Upload Paper
+          </button>
         </div>
       </div>
 
@@ -86,13 +95,16 @@ const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading,
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search documents by filename..."
+            aria-label="Search documents by filename"
             className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-indigo-500/50 transition-colors"
           />
         </div>
         {selectedIds.length > 0 && (
           <button 
+            type="button"
             onClick={() => setSelectedIds([])}
             className="text-[10px] text-slate-500 hover:text-white uppercase font-bold tracking-wider"
+            aria-label="Deselect all selected papers"
           >
             Deselect All
           </button>
@@ -123,8 +135,11 @@ const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading,
                 {/* Checkbox select top left */}
                 <button 
                   onClick={(e) => handleToggleSelect(e, paper.id)}
+                  type="button"
                   className="absolute top-4 left-4 p-1 text-slate-500 hover:text-indigo-400 z-10 transition-colors"
                   title="Checkmark to compare"
+                  aria-label={`${isChecked ? 'Remove' : 'Select'} ${paper.filename} for comparison`}
+                  aria-pressed={isChecked}
                 >
                   {isChecked ? <CheckSquare size={16} className="text-indigo-500" /> : <Square size={16} />}
                 </button>
@@ -137,9 +152,11 @@ const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading,
                     
                     {/* Delete button */}
                     <button 
+                      type="button"
                       onClick={() => onDelete(paper.id)}
-                      className="p-1.5 opacity-0 group-hover:opacity-100 rounded-lg hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-all"
+                      className="p-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 rounded-lg hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-all"
                       title="Delete document and logs"
+                      aria-label={`Delete ${paper.filename} and logs`}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -159,10 +176,12 @@ const DocsPanel = ({ papers, activePaper, onSelect, onDelete, onUpload, loading,
                   </span>
                   
                   <button 
+                    type="button"
                     onClick={() => onSelect(paper.id)}
                     className="flex items-center gap-1 text-[10px] font-bold text-white hover:text-indigo-400 transition-colors uppercase tracking-wider"
+                    aria-label={`Open ${paper.filename}`}
                   >
-                    Open <ArrowRight size={12} className="group-hover:translate-x-0.5 transition-transform" />
+                    Open <ArrowRight size={12} aria-hidden="true" className="group-hover:translate-x-0.5 transition-transform" />
                   </button>
                 </div>
               </div>

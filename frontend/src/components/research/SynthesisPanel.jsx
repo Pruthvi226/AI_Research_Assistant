@@ -47,16 +47,20 @@ const SynthesisPanel = ({ synthesisData, onClose, onActivateWorkspace, isActiveW
           </button>
 
           <button 
+            type="button"
             onClick={handleExport}
             className="p-2.5 glass-panel border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all text-xs flex items-center gap-1.5"
+            aria-label="Export synthesis report"
           >
             <Download size={14} /> Export
           </button>
 
           <button 
+            type="button"
             onClick={onClose}
             className="p-2.5 glass-panel border-white/10 text-slate-400 hover:text-white hover:bg-white/5 transition-all"
             title="Return to library"
+            aria-label="Return to document library"
           >
             <X size={14} />
           </button>

@@ -106,3 +106,13 @@ h1, h2, h3, h4 {
 .visualizer-bar:nth-child(5) { animation-delay: 0.4s; height: 18px; }
 
 
+
+
+:where(button, a, input, textarea, select, summary):focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 3px;
+}
+
+button {
+  text-align: inherit;
+}

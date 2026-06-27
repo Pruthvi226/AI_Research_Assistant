@@ -12,8 +12,14 @@ class MathEquationAgent:
     def run(self, query: str = "", image_path: Optional[str] = None, **_: Any) -> Dict[str, Any]:
         equation_text = (query or "").strip()
         ocr_text = ""
+        ocr_warning = ""
         if image_path and self.ocr_service:
-            ocr_text = self.ocr_service.extract_text_from_image(image_path)
+            try:
+                ocr_text = self.ocr_service.extract_text_from_image(image_path)
+            except Exception as exc:
+                if not equation_text:
+                    raise
+                ocr_warning = str(exc)
             equation_text = equation_text or ocr_text
 
         if not equation_text:
@@ -24,6 +30,8 @@ class MathEquationAgent:
         else:
             data = self._fallback_equation(equation_text)
         data["ocr_text"] = ocr_text
+        if ocr_warning:
+            data["ocr_warning"] = ocr_warning
 
         response = (
             f"**Clean LaTeX:**\n$${data['latex']}$$\n\n"
