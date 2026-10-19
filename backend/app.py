@@ -616,6 +616,8 @@ def health():
         "mode": "advanced (Gemini)" if gemini.is_available else "offline (fast local fallback)",
         "retrieval": "semantic" if embedding_engine.use_semantic else "lexical",
         "transformer_fallback": bool(getattr(summarizer.config, "USE_TRANSFORMER_FALLBACK", False)),
+        "storage_mode": os.environ.get('STORAGE_MODE', 'local'),
+        "hosting_tier": os.environ.get('HOSTING_TIER', ''),
         "jobs": len(job_manager.list(limit=500)),
         "environment_warnings": validate_runtime_environment(),
     }), status_code

@@ -1,16 +1,13 @@
-# Create only after reviewing the paid compute/disk plan in Render.
+# Free demo hosting. Backend files and SQLite reset on restart/redeploy/spin-down.
 services:
   - type: web
     name: scientia-research-api
     runtime: docker
+    plan: free
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/system/readiness
     numInstances: 1
-    disk:
-      name: scientia-research-data
-      mountPath: /app/data
-      sizeGB: 1
     envVars:
       - key: ENVIRONMENT
         value: production
@@ -22,6 +19,10 @@ services:
         value: 'true'
       - key: GEMINI_API_KEY
         sync: false
+      - key: STORAGE_MODE
+        value: ephemeral
+      - key: HOSTING_TIER
+        value: render-free
       - key: CORS_ORIGINS
         value: https://pruthvi226.github.io
       - key: MAX_UPLOAD_MB

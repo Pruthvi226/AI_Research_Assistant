@@ -1043,6 +1043,11 @@ export default function App() {
                 title="Paper workspace"
                 description="Upload a PDF, uncover its key ideas, and ask questions grounded in the text."
               />
+              {status?.storage_mode === "ephemeral" && (
+                <div className="info-banner" role="status">
+                  This free demo stores PDFs temporarily. Uploaded papers and document chats reset when the server sleeps, restarts, or redeploys. Download your reports before leaving.
+                </div>
+              )}
               <div className="upload-zone">
                 <span className="feature-icon green">
                   <Upload size={23} />
@@ -1542,6 +1547,7 @@ export default function App() {
                   live on the backend. The current backend is a shared research
                   demo, so use public documents only.
                 </p>
+                {status?.storage_mode === "ephemeral" && <p>Free hosting uses temporary storage: uploaded PDFs and document chats can disappear when the server sleeps or restarts. Browser bookmarks and notes are separate and remain on this device.</p>}
                 <div className="toolbar">
                   <button
                     className="secondary-button"

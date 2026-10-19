@@ -49,4 +49,4 @@ RUN mkdir -p /app/data/uploads /app/data/faiss_index /app/data/generated_audio /
 EXPOSE 5000
 
 # Run the Flask server behind a lightweight WSGI server
-CMD ["sh", "-c", "exec waitress-serve --host=0.0.0.0 --port=${PORT:-5000} app:app"]
+CMD ["python", "start.py"]

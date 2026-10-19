@@ -4,7 +4,7 @@ A research assistant for discovering academic publications, organizing evidence,
 
 **Live frontend:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). Published through GitHub Pages and verified in a browser on 19 October 2026: real paper search, bookmarks, notes after reload, routing, mobile navigation and dark mode passed with no page errors or failed site assets. The site currently runs in discovery mode. Backend PDF processing and cloud AI await the Render Blueprint setup and server-side credentials.
 
-**Backend setup:** [Apply the prepared Render Blueprint](https://dashboard.render.com/blueprint/new?repo=https://github.com/Pruthvi226/AI_Research_Assistant). Review its paid compute and persistent disk, set the Gemini key in Render, then configure the resulting API origin as the GitHub `REACT_APP_API_URL` variable and rerun the Pages workflow. The available connector cannot attach persistent disks, so this Dashboard step is required.
+**Free backend setup:** [`render.yaml`](render.yaml) now selects Render's **free** compute plan without a persistent disk. Deployment can use the connector or the [Blueprint](https://dashboard.render.com/blueprint/new?repo=https://github.com/Pruthvi226/AI_Research_Assistant). PDFs and backend history are temporary and reset on restarts, redeploys, and idle spin-down. Browser bookmarks and notes remain local. Gemini still requires a provider key set only in Render.
 
 ![Scientia desktop workspace](docs/screenshots/desktop.png)
 
@@ -153,16 +153,16 @@ Workflow: [`.github/workflows/pages.yml`](.github/workflows/pages.yml). General 
 
 ## Backend deployment
 
-[`render.yaml`](render.yaml) is schema-validated and prepared for a single Docker web service with a 1 GB persistent disk. **Compute and disk incur hosting charges; review the plan in Render before creating it.** It has not been applied.
+[`render.yaml`](render.yaml) is schema-validated for one Docker web service with `plan: free` and no persistent disk. This configuration is intended for a portfolio demo. [Render free-plan limits](https://render.com/docs/free) include idle spin-down and loss of runtime files; cold starts can take about a minute.
 
 1. Push the reviewed source to GitHub, then create a Blueprint from that repository in your chosen Render workspace.
-2. Review the compute plan and disk cost. The default plan selection is left to Render; confirm its current specification before creating the service.
+2. Select the Free compute plan. Do not attach a disk or upgrade to a paid plan for this configuration.
 3. Set `GEMINI_API_KEY` through Render's secret environment UI. `SECRET_KEY` and `ADMIN_API_KEY` are generated; keep them server-side. Optional provider credentials can be added there too.
 4. Set `CORS_ORIGINS` to the exact Pages origin (no repository path). Existing Blueprint configuration uses `https://pruthvi226.github.io`.
 5. Deploy and verify `/api/system/readiness` returns HTTP 200. Set the resulting HTTPS service URL as the GitHub `REACT_APP_API_URL` repository variable, then rerun Pages deployment.
-6. Verify actual cloud-backed generation, error handling, upload polling, source links, persistence after redeployment, and provider quotas.
+6. Verify error handling, upload polling and source links. Verify cloud-backed generation after setting a Gemini key. Expect backend data to reset on restarts; download reports you want to keep.
 
-The Docker command honors `$PORT`. All runtime files use `/app/data`; disk-backed SQLite needs one service instance. In-process jobs do not survive restarts. Expect deploy downtime with a service-attached disk, and maintain SQLite-consistent backups.
+The Docker entry point honors `$PORT` and generates private runtime secrets if none are configured. Runtime files use `/app/data` on the ephemeral filesystem. In-process jobs do not survive restarts. Durable backend storage would require an explicit future hosting/storage change; this free deployment does not provide it.
 
 For local Docker, `docker compose up --build` serves Nginx on port 3000 and Flask on port 5000. Nginx permits the public Crossref API in its connection policy. Docker has not been executed in this environment.
 
