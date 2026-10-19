@@ -29,6 +29,21 @@ test("real PDF upload, local retrieval chat, source links, code and missing-key 
     .fill("What dataset was evaluated?");
   await page.getByRole("button", { name: "Send research question" }).click();
   await expect(page.locator(".message.assistant")).toContainText("120");
+  await page.reload({ waitUntil: "networkidle" });
+  await page
+    .getByRole("button", { name: "Paper workspace", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "workflow-fixture.pdf", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("heading", { name: "workflow-fixture.pdf", exact: true })
+    .waitFor();
+  await page
+    .getByRole("button", { name: "Ask this paper", exact: true })
+    .click();
+  await expect(page.locator(".message.assistant")).toContainText("120");
   await page.locator(".message.assistant summary").first().click();
   const source = page
     .getByRole("link", { name: /Open source.*page 1/ })

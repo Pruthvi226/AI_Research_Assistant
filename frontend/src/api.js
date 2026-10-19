@@ -22,7 +22,13 @@ export function errorMessage(error) {
   );
 }
 export async function healthCheck() {
-  return (await api.get("/api/health")).data;
+  const { data } = await api.get("/api/health");
+  if (!data || typeof data !== "object" || typeof data.mode !== "string") {
+    throw new Error(
+      "The free backend is starting. Wait a moment and check the connection again.",
+    );
+  }
+  return data;
 }
 export async function uploadPaper(file, onProgress, signal) {
   if (!file || !/\.pdf$/i.test(file.name))

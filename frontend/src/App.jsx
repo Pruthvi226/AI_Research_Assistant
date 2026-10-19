@@ -157,7 +157,12 @@ export default function App() {
     if (!backendConfigured) return;
     try {
       setStatus(await healthCheck());
-      setDocuments((await api.get("/api/documents")).data.documents || []);
+      const listed = (await api.get("/api/documents")).data.documents;
+      if (!Array.isArray(listed))
+        throw new Error("Invalid document list response.");
+      setDocuments(
+        listed.map((doc) => ({ ...doc, session_id: doc.session_id || doc.id })),
+      );
     } catch {
       setStatus({ offline: true });
     }
@@ -537,7 +542,9 @@ export default function App() {
                   ? "AI connected"
                   : "Local analysis"
                 : backendConfigured
-                  ? "API offline"
+                  ? status === null
+                    ? "Connecting…"
+                    : "API offline"
                   : "Discovery mode"}
             </span>
             <button
@@ -1045,7 +1052,9 @@ export default function App() {
               />
               {status?.storage_mode === "ephemeral" && (
                 <div className="info-banner" role="status">
-                  This free demo stores PDFs temporarily. Uploaded papers and document chats reset when the server sleeps, restarts, or redeploys. Download your reports before leaving.
+                  This free demo stores PDFs temporarily. Uploaded papers and
+                  document chats reset when the server sleeps, restarts, or
+                  redeploys. Download your reports before leaving.
                 </div>
               )}
               <div className="upload-zone">
@@ -1547,7 +1556,14 @@ export default function App() {
                   live on the backend. The current backend is a shared research
                   demo, so use public documents only.
                 </p>
-                {status?.storage_mode === "ephemeral" && <p>Free hosting uses temporary storage: uploaded PDFs and document chats can disappear when the server sleeps or restarts. Browser bookmarks and notes are separate and remain on this device.</p>}
+                {status?.storage_mode === "ephemeral" && (
+                  <p>
+                    Free hosting uses temporary storage: uploaded PDFs and
+                    document chats can disappear when the server sleeps or
+                    restarts. Browser bookmarks and notes are separate and
+                    remain on this device.
+                  </p>
+                )}
                 <div className="toolbar">
                   <button
                     className="secondary-button"
