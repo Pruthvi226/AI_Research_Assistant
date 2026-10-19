@@ -47,7 +47,9 @@ See `docs/VERIFICATION.md` for final test results. Desktop and mobile screenshot
 
 The Render Blueprint was validated against `https://render.com/schema/render.yaml.json`. A real Crossref search returned HTTP 200. Live Gemini generation requires a server-side credential and has not been exercised. Docker was prepared but not executed.
 
-The configured GitHub CLI account reported an invalid stored token. No source was pushed, no Pages deployment was claimed, and no paid Render resource was created. Backend hosting needs selection/confirmation of a Render workspace and compute/disk plan, and the provider secret must be set through the host's environment interface.
+The initial restricted GitHub check reported an invalid token, but a network-enabled check verified valid authentication and repository write access. Source was committed and pushed, preserving the remote notebook update. GitHub Pages was enabled and deployed successfully: [live site](https://pruthvi226.github.io/AI_Research_Assistant/), [deployment run](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39264404488). A browser verified real search, bookmarks, saved notes after reload, mobile navigation, themes and clean asset loading.
+
+No paid Render resource was created. The connected Render tool cannot attach the required persistent disk, and no Render API key or Gemini credential is configured. The prepared Blueprint is published and its Dashboard application link is in README. Backend deployment awaits that user-controlled step.
 
 ## Architectural limits
 

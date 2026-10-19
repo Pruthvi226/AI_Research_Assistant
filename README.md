@@ -2,7 +2,9 @@
 
 A research assistant for discovering academic publications, organizing evidence, reading PDFs, and building source-backed research conversations and reviews. The React frontend runs on GitHub Pages; a Flask backend preserves PDF processing, Gemini, retrieval, equation, code, citation, GitHub, and briefing tools.
 
-**Release status:** implemented and locally verified. These changes have not been pushed or deployed. GitHub authentication must be renewed, and backend hosting and server-side AI credentials must be configured before the full public experience can be verified.
+**Live frontend:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). Published through GitHub Pages and verified in a browser on 19 October 2026: real paper search, bookmarks, notes after reload, routing, mobile navigation and dark mode passed with no page errors or failed site assets. The site currently runs in discovery mode. Backend PDF processing and cloud AI await the Render Blueprint setup and server-side credentials.
+
+**Backend setup:** [Apply the prepared Render Blueprint](https://dashboard.render.com/blueprint/new?repo=https://github.com/Pruthvi226/AI_Research_Assistant). Review its paid compute and persistent disk, set the Gemini key in Render, then configure the resulting API origin as the GitHub `REACT_APP_API_URL` variable and rerun the Pages workflow. The available connector cannot attach persistent disks, so this Dashboard step is required.
 
 ![Scientia desktop workspace](docs/screenshots/desktop.png)
 
@@ -136,7 +138,7 @@ Backend integration tests generate an actual PDF and exercise upload, extraction
 
 ## GitHub Pages deployment
 
-The repository remote is [Pruthvi226/AI_Research_Assistant](https://github.com/Pruthvi226/AI_Research_Assistant). It has not been updated by this implementation session.
+The published source is [Pruthvi226/AI_Research_Assistant](https://github.com/Pruthvi226/AI_Research_Assistant). The tested workspace changes and the pre-existing remote notebook update are both preserved on `main`.
 
 1. Renew GitHub CLI authentication with `gh auth login` in your terminal. Do not paste a token into chat.
 2. Review changes, commit the intended source files, and push to `main` or `master`. Preserve any unrelated work already in your checkout.
@@ -145,7 +147,7 @@ The repository remote is [Pruthvi226/AI_Research_Assistant](https://github.com/P
 5. Run the **Deploy GitHub Pages** workflow. It lints, tests, builds with Pages' actual base path, uploads the static artifact, and deploys using GitHub's official Pages actions.
 6. Verify the workflow's returned URL, every navigation tab, an actual Crossref search, and, when connected, PDF upload and chat. Refresh `#library` directly to check routing.
 
-The expected URL for this repository name is `https://pruthvi226.github.io/AI_Research_Assistant/`; **this is a deployment target, not a claim that this version is live**. Hash navigation avoids Pages server-rewrite requirements. All build assets and the favicon respect the configured repository path.
+The verified live URL is `https://pruthvi226.github.io/AI_Research_Assistant/`. [Successful Pages deployment](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39264404488). Hash navigation avoids Pages server-rewrite requirements. All build assets and the favicon respect the configured repository path.
 
 Workflow: [`.github/workflows/pages.yml`](.github/workflows/pages.yml). General verification: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
@@ -186,7 +188,7 @@ docs/screenshots/                    Captured desktop and mobile UI
 
 ## Limits and next improvements
 
-- No public deployment is claimed until authenticated publishing and live checks are complete.
+- The frontend is published and verified. Full backend/AI deployment remains pending the Render Blueprint and provider credentials.
 - Gemini is optional for local extraction but required for genuine generative chat/reviews; model/provider failures are shown or labeled as local fallback.
 - Crossref coverage depends on publisher deposits. Abstracts, citation counts, and PDF links may be absent; linked full text may be paywalled. Citation formats are drafts to verify before publication.
 - Literature reviews use available abstracts, not retrieved full text. Missing methodologies, datasets, metrics, and findings must remain explicitly unreported. Proposed research gaps are hypotheses.

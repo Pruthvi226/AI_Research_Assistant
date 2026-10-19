@@ -1,6 +1,6 @@
 # Verification results
 
-Validated on 19 October 2026. These results concern the local updated source and production builds, not a deployed public release.
+Validated on 19 October 2026. Local verification results are below; the frontend was subsequently published and checked publicly as recorded in the deployment section.
 
 | Check | Result |
 | --- | --- |
@@ -37,10 +37,17 @@ The final discovery build used Vite's production mode with the GitHub repository
 
 Local artifacts are under `.codex-test/production-build` and `.codex-test/connected-build` and are ignored by Git. Screenshots under `docs/screenshots/` are intentional documentation artifacts.
 
-## Not verified or not deployed
+## Public deployment
 
-- GitHub authentication reported an invalid stored token. No push or Pages release was performed.
-- No Render service or paid disk was provisioned; schema validation is not a deployment or platform admission test.
+- Live frontend: https://pruthvi226.github.io/AI_Research_Assistant/
+- Successful Pages workflow: https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39264404488
+- Application release source commit: `3c9337059e76cef4943f7c603ededff382f7437c`.
+- Public browser checks passed: HTTP 200, real Crossref search, DOI-linked publication cards, bookmarks, note persistence after reload, direct hash routes, mobile navigation, dark theme and static-mode capability state. Zero page errors and zero failed site assets were observed.
+- GitHub authentication and repository write access were verified with network-enabled execution. The earlier restricted-environment authentication failure was not a real expired-token failure.
+
+## Remaining unverified or pending
+
+- No Render service or paid disk was provisioned. The available connector cannot attach a persistent disk and no Render API credential is configured. Applying the prepared Blueprint in the Dashboard is the remaining hosting step; schema validation is not a deployment or platform admission test.
 - No live Gemini generation was run. Provider success and failure paths were tested using isolated doubles; missing configuration was tested through the actual UI/backend.
 - Docker containers and external TTS/OCR infrastructure were not executed. Existing APIs remain available and their local text/script paths were exercised.
 - The audit resolves `backend/requirements_docker.txt`; it is not a security audit of all unrelated packages installed on the workstation or the optional ML stack.
