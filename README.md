@@ -2,9 +2,9 @@
 
 A research assistant for discovering academic publications, organizing evidence, reading PDFs, and building source-backed research conversations and reviews. The React frontend runs on GitHub Pages; a Flask backend preserves PDF processing, Gemini, retrieval, equation, code, citation, GitHub, and briefing tools.
 
-**Live frontend:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). Published through GitHub Pages and verified in a browser on 19 October 2026: real paper search, bookmarks, notes after reload, routing, mobile navigation and dark mode passed with no page errors or failed site assets. The site currently runs in discovery mode. Backend PDF processing and cloud AI await the Render Blueprint setup and server-side credentials.
+**Live application:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). The GitHub Pages frontend is connected to the [free Render backend](https://scientia-research-api.onrender.com). Discovery, PDF extraction and local document chat are available. Gemini generation requires a server-side provider key and remains unavailable until configured.
 
-**Free backend setup:** [`render.yaml`](render.yaml) now selects Render's **free** compute plan without a persistent disk. Deployment can use the connector or the [Blueprint](https://dashboard.render.com/blueprint/new?repo=https://github.com/Pruthvi226/AI_Research_Assistant). PDFs and backend history are temporary and reset on restarts, redeploys, and idle spin-down. Browser bookmarks and notes remain local. Gemini still requires a provider key set only in Render.
+**Free backend:** Deployed in Singapore using Render's **Free** compute plan without a persistent disk. [Service dashboard](https://dashboard.render.com/web/srv-dbb69tgm7kps73c96rq0). PDFs and backend history are temporary and reset on restarts, redeploys, and idle spin-down. Browser bookmarks and notes remain local. [`render.yaml`](render.yaml) preserves the free configuration for future Blueprint use. Set `GEMINI_API_KEY` only in the backend environment to enable generative features.
 
 ![Scientia desktop workspace](docs/screenshots/desktop.png)
 
@@ -188,7 +188,7 @@ docs/screenshots/                    Captured desktop and mobile UI
 
 ## Limits and next improvements
 
-- The frontend is published and verified. Full backend/AI deployment remains pending the Render Blueprint and provider credentials.
+- The frontend and free backend are published. Local PDF tools work without a provider key; Gemini generation remains pending a backend credential. Backend storage is temporary on the free plan.
 - Gemini is optional for local extraction but required for genuine generative chat/reviews; model/provider failures are shown or labeled as local fallback.
 - Crossref coverage depends on publisher deposits. Abstracts, citation counts, and PDF links may be absent; linked full text may be paywalled. Citation formats are drafts to verify before publication.
 - Literature reviews use available abstracts, not retrieved full text. Missing methodologies, datasets, metrics, and findings must remain explicitly unreported. Proposed research gaps are hypotheses.

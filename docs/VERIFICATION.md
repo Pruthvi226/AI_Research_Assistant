@@ -47,9 +47,23 @@ Local artifacts are under `.codex-test/production-build` and `.codex-test/connec
 
 ## Remaining unverified or pending
 
-- No Render service or paid disk was provisioned. The available connector cannot attach a persistent disk and no Render API credential is configured. Applying the prepared Blueprint in the Dashboard is the remaining hosting step; schema validation is not a deployment or platform admission test.
+- The backend was subsequently deployed on Render's Free plan at the user's request. No paid disk was provisioned. Backend runtime data is ephemeral; see the free-hosting release record below.
 - No live Gemini generation was run. Provider success and failure paths were tested using isolated doubles; missing configuration was tested through the actual UI/backend.
 - Docker containers and external TTS/OCR infrastructure were not executed. Existing APIs remain available and their local text/script paths were exercised.
 - The audit resolves `backend/requirements_docker.txt`; it is not a security audit of all unrelated packages installed on the workstation or the optional ML stack.
 - Automated accessibility tests supplement the visual/keyboard checks; they do not prove complete accessibility compliance.
 - Shared workspace privacy and single-instance/in-process limits are documented in README and the implementation report.
+
+## Free-hosting release — 20 October 2026
+
+- Frontend: https://pruthvi226.github.io/AI_Research_Assistant/
+- Backend: https://scientia-research-api.onrender.com
+- Render service: `srv-dbb69tgm7kps73c96rq0`, Singapore, **Free** compute plan, no persistent disk.
+- Render deployment `dep-dbb69u0m7kps73c96t9g` reached **live**. Its source commit is `55eaa02b08f1eba062cadaf88321d5310c691efa`.
+- The connected frontend release with document reopening and cold-start handling is `2329d3af89c17a376887cb34badf4a5a6b17a31d`.
+- [Pages deployment](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39305533292) and [CI](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39305533315) both succeeded.
+- `/api/health` and `/api/system/readiness` returned HTTP 200; readiness was true. CORS allowed the actual Pages origin. Health reported `storage_mode: ephemeral` and local fallback mode.
+- The public browser workflow passed: temporary-storage notice, real PDF upload, local source-backed answer containing the document's dataset, original PDF page link returning PDF/HTTP 200, reopening the document and chat after reload, and actionable missing-Gemini-key handling. No page errors occurred.
+- Testing exposed and fixed a document identifier mismatch in the frontend. The connected browser regression test now covers reopening after reload.
+- Backend checks: 29 tests and four smoke endpoints passed. Frontend lint, six unit tests and production build passed. New startup code generates private runtime secrets if none were provisioned.
+- Runtime storage is temporary. Backend PDFs/history can be lost on idle spin-down, restart or redeploy; browser notes/bookmarks are separate. A Gemini provider key remains required for generative AI. No paid disk or paid compute plan was created.

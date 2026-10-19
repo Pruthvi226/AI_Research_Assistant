@@ -49,7 +49,9 @@ The Render Blueprint was validated against `https://render.com/schema/render.yam
 
 The initial restricted GitHub check reported an invalid token, but a network-enabled check verified valid authentication and repository write access. Source was committed and pushed, preserving the remote notebook update. GitHub Pages was enabled and deployed successfully: [live site](https://pruthvi226.github.io/AI_Research_Assistant/), [deployment run](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39264404488). A browser verified real search, bookmarks, saved notes after reload, mobile navigation, themes and clean asset loading.
 
-No paid Render resource was created. The connected Render tool cannot attach the required persistent disk, and no Render API key or Gemini credential is configured. The prepared Blueprint is published and its Dashboard application link is in README. Backend deployment awaits that user-controlled step.
+The user subsequently requested free hosting. On 20 October 2026, the configuration was changed to `plan: free` with no disk, and the connector deployed `scientia-research-api` in Singapore. [Backend](https://scientia-research-api.onrender.com), [service dashboard](https://dashboard.render.com/web/srv-dbb69tgm7kps73c96rq0). GitHub's public API-origin variable now connects the Pages frontend to it. No paid compute or persistent disk was provisioned. The interface warns that PDFs and backend history reset when the free service sleeps or restarts. Gemini credentials remain unset.
+
+Public deployment testing found and fixed the document-list identifier mismatch (`id` versus `session_id`) so stored papers and their chats can reopen. A browser regression check now covers the reload path. Health response validation also distinguishes Render startup HTML from a valid API response.
 
 ## Architectural limits
 
