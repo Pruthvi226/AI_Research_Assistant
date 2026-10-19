@@ -1,69 +1,65 @@
-/**
- * API client for AI Research Assistant backend.
- * Base URL defaults to same origin (proxy in dev) or env REACT_APP_API_URL.
- */
+import axios from "axios";
 
-import axios from 'axios';
-
-const API_BASE = process.env.REACT_APP_API_URL || '';
-const API_TIMEOUT_MS = 300000;
-const ADMIN_API_KEY = process.env.REACT_APP_ADMIN_API_KEY || '';
-
-axios.defaults.baseURL = API_BASE;
-axios.defaults.timeout = API_TIMEOUT_MS;
-if (ADMIN_API_KEY) {
-  axios.defaults.headers.common['X-Admin-Key'] = ADMIN_API_KEY;
-  document.cookie = `scientia_admin=${encodeURIComponent(ADMIN_API_KEY)}; SameSite=Strict; Path=/`;
-}
-
-const api = axios.create({
-  baseURL: API_BASE,
-  headers: {
-    'Content-Type': 'application/json',
-    ...(ADMIN_API_KEY ? { 'X-Admin-Key': ADMIN_API_KEY } : {}),
-  },
-  timeout: API_TIMEOUT_MS, // uploads and paper analysis can be long-running
+const configuredOrigin = process.env.REACT_APP_API_URL || "";
+export const API_BASE = configuredOrigin.replace(/\/$/, "");
+export const backendConfigured =
+  Boolean(configuredOrigin) || process.env.NODE_ENV === "development";
+const api = axios.create({ baseURL: API_BASE, timeout: 75000 });
+api.interceptors.request.use((config) => {
+  if (!backendConfigured)
+    throw new Error(
+      "Connect a backend to use PDF analysis and AI tools. See Settings.",
+    );
+  return config;
 });
-
-/**
- * Health check
- */
+export function errorMessage(error) {
+  return (
+    error.response?.data?.error ||
+    (error.code === "ERR_NETWORK"
+      ? "Cannot reach the research API. Check the backend URL and its CORS settings."
+      : error.message) ||
+    "Something went wrong. Please retry."
+  );
+}
 export async function healthCheck() {
-  const { data } = await api.get('/api/health');
-  return data;
+  return (await api.get("/api/health")).data;
 }
-
-/**
- * Upload PDF and get summary + insights
- * @param {File} file - PDF file
- * @returns {Promise<UploadResponse>}
- */
-export async function uploadPaper(file) {
-  const formData = new FormData();
-  formData.append('file', file);
-  const { data } = await api.post('/api/upload/pdf', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  });
-  return data;
+export async function uploadPaper(file, onProgress, signal) {
+  if (!file || !/\.pdf$/i.test(file.name))
+    throw new Error("Choose a PDF document.");
+  if (file.size > 20 * 1024 * 1024)
+    throw new Error("Please choose a PDF smaller than 20 MB.");
+  const form = new FormData();
+  form.append("file", file);
+  const data = (await api.post("/api/upload/pdf?async=true", form, { signal }))
+    .data;
+  if (!data.job_id) return data;
+  const deadline = Date.now() + 8 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const job = (
+      await api.get(`/api/jobs/${encodeURIComponent(data.job_id)}`, { signal })
+    ).data.job;
+    onProgress?.(job);
+    if (job.status === "done") return job.result;
+    if (job.status === "failed")
+      throw new Error(job.error || "PDF processing failed.");
+  }
+  throw new Error(
+    "Processing is taking longer than expected. Check your document library before uploading again.",
+  );
 }
-
-/**
- * Ask a question about the uploaded paper
- * @param {string} question
- * @param {string} [sessionId]
- */
-export async function askQuestion(question, sessionId = '') {
-  const { data } = await api.post('/api/chat', { question, session_id: sessionId });
-  return data;
+export async function askQuestion(question, sessionId = "") {
+  return (
+    await api.post("/api/chat", {
+      question,
+      session_id: sessionId,
+      agent: "rag",
+    })
+  ).data;
 }
-
-/**
- * Get conversation history for a session
- * @param {string} sessionId
- */
 export async function getHistory(sessionId) {
-  const { data } = await api.get('/api/history', { params: { session_id: sessionId } });
-  return data;
+  return (await api.get("/api/history", { params: { session_id: sessionId } }))
+    .data;
 }
-
 export default api;

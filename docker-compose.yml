@@ -24,8 +24,7 @@ services:
     build:
       context: ./frontend
       args:
-        REACT_APP_API_URL: ""
-        REACT_APP_ADMIN_API_KEY: ""
+        REACT_APP_API_URL: "/"
     container_name: scientia-frontend
     init: true
     restart: unless-stopped

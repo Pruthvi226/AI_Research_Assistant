@@ -1,40 +1,35 @@
 {
-  "name": "ai-research-assistant-frontend",
-  "version": "1.0.0",
+  "name": "scientia-research-workspace",
+  "version": "2.0.0",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "vite --host 127.0.0.1 --port 3000",
+    "dev": "vite --host 127.0.0.1 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "lint": "eslint src --max-warnings 0"
+  },
   "dependencies": {
-    "axios": "^1.18.1",
-    "clsx": "^2.0.0",
-    "framer-motion": "^10.16.0",
+    "axios": "^1.20.0",
     "lucide-react": "^0.300.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "tailwind-merge": "^2.0.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "tailwindcss": "^3.4.0"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "dev": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "proxy": "http://localhost:5000"
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.64.1",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^9.39.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.0.0",
+    "prettier": "^3.9.10",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
 }

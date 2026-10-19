@@ -12,10 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from config import InsightsConfig
 
-try:
-    from transformers import pipeline
-except ImportError:
-    pipeline = None
+pipeline = None
 
 
 class ResearchInsightsEngine:
@@ -27,10 +24,12 @@ class ResearchInsightsEngine:
 
     @property
     def summarizer(self):
+        global pipeline
         if not self.config.USE_TRANSFORMER_FALLBACK:
             raise RuntimeError("Transformer fallback is disabled.")
         if pipeline is None:
-            raise ImportError("transformers required. pip install transformers torch")
+            from transformers import pipeline as transformer_pipeline
+            pipeline = transformer_pipeline
         if self._summarizer is None:
             self._summarizer = pipeline(
                 "summarization",

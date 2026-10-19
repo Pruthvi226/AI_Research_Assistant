@@ -1,235 +1,199 @@
-﻿# Scientia.ai
+# Scientia — AI Research Workspace
 
-![CI](https://github.com/Pruthvi226/AI_Research_Assistant/actions/workflows/ci.yml/badge.svg)
-![Python](https://img.shields.io/badge/Python-3.11-blue)
-![React](https://img.shields.io/badge/React-18-61dafb)
-![Docker](https://img.shields.io/badge/Docker-ready-2496ed)
+A research assistant for discovering academic publications, organizing evidence, reading PDFs, and building source-backed research conversations and reviews. The React frontend runs on GitHub Pages; a Flask backend preserves PDF processing, Gemini, retrieval, equation, code, citation, GitHub, and briefing tools.
 
-Scientia.ai is a production-minded, multi-agent AI research assistant. It ingests research papers, builds a retrieval index, routes user intent across specialized agents, and returns grounded summaries, answers, equations, citations, GitHub implementations, code scaffolds, and podcast-style briefings.
+**Release status:** implemented and locally verified. These changes have not been pushed or deployed. GitHub authentication must be renewed, and backend hosting and server-side AI credentials must be configured before the full public experience can be verified.
 
-The project is built to show both product capability and system-design maturity: Docker deployment, persistent storage, background jobs, request tracing, readiness checks, metrics, CI, and a documented scale-out path.
+![Scientia desktop workspace](docs/screenshots/desktop.png)
 
-## Highlights
+<details><summary>Mobile screenshot</summary>
 
-- Multi-agent orchestration for paper analysis, RAG QA, equations, code, citations, GitHub matching, and podcasts.
-- PDF ingestion with page-aware chunks, references, markdown export, and persisted document workspaces.
-- Source-grounded chat with lexical retrieval by default and optional FAISS/sentence-transformers semantic retrieval.
-- Gemini integration with local extractive fallback so demos still work without cloud keys.
-- Semantic keyboard workflow for explicit agent selection, accessible tabs/buttons, and keyboard-visible focus states.
-- Admin-sensitive APIs can be protected with an `X-Admin-Key` header or `admin_api_key` cookie.
-- Async PDF processing with bounded in-process jobs, progress polling, retention limits, and `429 job_queue_full` backpressure.
-- Operational endpoints for health, readiness, metrics, request IDs, and response timing.
-- React dashboard with upload, chat, source panels, agent badges, generated outputs, and settings.
-- Security headers for Flask and Nginx deployments, plus prompt-hardening for retrieved paper context.
-- Docker Compose deployment with Nginx frontend, Waitress backend, and mounted data volume.
-- CI and local verification gates for backend syntax, unit tests, smoke checks, and frontend production builds.
+<img src="docs/screenshots/mobile.png" alt="Scientia landing page on a 390-pixel mobile viewport" width="320" />
 
-## Architecture
+</details>
+
+## Features
+
+| Capability | Static Pages frontend | Connected backend |
+| --- | --- | --- |
+| Academic discovery | Crossref topic, title, author and keyword search | Server evidence retrieval for AI answers |
+| Filtering | Publication year, relevance, newest, citation count, pagination | — |
+| Paper metadata | Authors, venue, DOI, abstracts and PDF links when supplied | OpenAlex enrichment for extracted references |
+| Personal library | Bookmarks, notes, library filter, search history | Persisted uploaded documents and document chats |
+| Citation tools | APA, IEEE, MLA draft citations; BibTeX and text export | Reference extraction from PDFs |
+| Research chat | Browser conversation persistence and export | Gemini source-backed multi-turn chat; extractive PDF QA without a key |
+| Paper workspace | Responsive document interface | PDF extraction, summaries, methodology, results, limitations, future directions |
+| Comparison | Saved-paper selection and metadata table | Abstract-based literature reviews and uploaded-PDF comparison; cross-document QA |
+| Additional tools | Markdown/JSON reports and local workspace export | Equation explanation, PyTorch scaffolds, GitHub matching, briefing scripts, optional audio API |
+
+AI analysis, local extraction/templates, and metadata output are labeled separately. Missing provider configuration produces an actionable error; it never fabricates an AI answer. Source metadata is evidence provenance, not independent verification of the paper's claims.
+
+## Stack and architecture
+
+- React 18, Vite, Lucide icons, custom responsive CSS, light/dark themes.
+- Lazy-loaded React Markdown and GFM tables; raw HTML is not executed and unsafe links are rejected.
+- Flask, Flask-CORS, Waitress, SQLite WAL, PyMuPDF; optional OCR and audio services.
+- Gemini REST API with server-side keys, bounded requests, explicit provider errors, and existing extractive fallback.
+- Lexical retrieval by default; optional FAISS/sentence-transformers remains available.
+- Vitest, ESLint, Playwright, axe, Python unittest, GitHub Actions, Docker, Render Blueprint.
 
 ```mermaid
 flowchart LR
-    Browser[React + Nginx] --> API[Flask + Waitress API]
-    API --> Orchestrator[Agent Orchestrator]
-    Orchestrator --> Research[Research Agent]
-    Orchestrator --> RAG[RAG Agent]
-    Orchestrator --> Math[Math Agent]
-    Orchestrator --> Code[Code Agent]
-    Orchestrator --> Citations[Citation Agent]
-    Orchestrator --> GitHub[GitHub Agent]
-    Orchestrator --> Podcast[Podcast Agent]
-    API --> Jobs[Bounded Job Manager]
-    API --> SQLite[(SQLite WAL)]
-    API --> Files[(Mounted Data Volume)]
-    RAG --> Index[Lexical or FAISS Index]
-    Research --> Gemini[Gemini Optional]
-    RAG --> Gemini
+    Browser[React on GitHub Pages] --> Crossref[Crossref public metadata API]
+    Browser --> Local[Browser bookmarks, notes and history]
+    Browser -->|HTTPS, configured API origin| API[Flask / Waitress]
+    API --> Metadata[Crossref / optional OpenAlex / GitHub]
+    API --> Gemini[Gemini REST API]
+    API --> PDF[PDF extraction and retrieval]
+    API --> Jobs[Bounded in-process jobs]
+    PDF --> Storage[SQLite and persistent files]
 ```
 
-More detail:
+The backend is a **shared portfolio workspace**, not a private multi-tenant service. Upload public papers only. Authentication, user ownership, and authorization across all document/job/artifact endpoints are future requirements for confidential or multi-user production use. Admin routes are protected separately.
 
-- [System design](docs/SYSTEM_DESIGN.md): request lifecycle, data model, failure modes, SLOs, and scale-out roadmap.
-- [API contract](docs/API_CONTRACT.md): endpoints, request/response shapes, jobs, generated outputs, and operational APIs.
-- [Production guide](PRODUCTION.md): deployment, hardening, backups, capacity, and migration path.
-- [Internship reviewer guide](docs/INTERNSHIP_REVIEW.md): demo script, tradeoffs, resume bullets, and quality gates.
-- [Contributing guide](CONTRIBUTING.md): setup, verification, code standards, and PR checklist.
+## Local development
 
-## Tech Stack
+Requires Node **22.14+** and Python **3.11+**. A lightweight backend install avoids downloading ML models.
 
-| Layer | Tools |
-| --- | --- |
-| Frontend | React 18, Tailwind CSS, lucide-react, Nginx |
-| Backend | Flask, Flask-CORS, Waitress |
-| AI | Google Gemini API, local extractive fallback |
-| Retrieval | Lexical vectors by default, optional FAISS + sentence-transformers |
-| Data | SQLite WAL, persisted chunks, chats, logs, generated outputs |
-| Media | PyMuPDF, PyTesseract, Pillow, gTTS |
-| DevOps | Docker, Docker Compose, GitHub Actions CI |
+From the repository root:
 
-## Quick Start
-
-### 1. Configure Environment
-
-```bash
-cp .env.example .env
-```
-
-Minimum useful values:
-
-```env
-SECRET_KEY=replace_with_a_strong_secret
-GEMINI_API_KEY=your_optional_gemini_key
-GITHUB_TOKEN=your_optional_github_token
-ADMIN_API_KEY=replace_with_admin_key_for_settings_and_logs
-REQUIRE_ADMIN_AUTH=true
-DATABASE_URL=sqlite:////app/data/scientia.db
-```
-
-The app runs without Gemini or GitHub tokens, but those features will use local or reduced-capability fallback behavior.
-
-Docker uses `backend/requirements_docker.txt`, a lightweight runtime dependency set that intentionally skips FAISS/sentence-transformers/Torch. Container deployments default to lexical retrieval; install the optional semantic stack only when you explicitly enable `USE_SEMANTIC_EMBEDDINGS=true`.
-
-### 2. Deploy With Docker Compose
-
-```bash
-docker compose up --build -d
-```
-
-Open:
-
-- Frontend: `http://localhost:3000`
-- Backend health: `http://localhost:5000/api/health`
-- Readiness: `http://localhost:5000/api/system/readiness`
-- Metrics: `http://localhost:5000/api/system/metrics`
-
-Stop:
-
-```bash
-docker compose down
-```
-
-Preserved data lives in the `scientia-data` Docker volume.
-
-## Local Development
-
-Backend:
-
-```bash
+```powershell
+Copy-Item .env.example .env
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r backend/requirements_docker.txt
 cd backend
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
+python -m dotenv -f ../.env run -- python app.py
 ```
 
-Frontend:
+Edit `.env` before starting. The example paths work with `backend/` as the working directory and with Docker's `/app` working directory. The backend reads process environment variables; the dotenv command loads the local file explicitly. For a keyless local session, `python app.py` works with default paths. Never commit `.env`.
 
-```bash
-cd frontend
-npm install
-npm start
-```
-
-## Verification
-
-Backend quality gate:
-
-```bash
-python scripts/verify_backend.py
-```
-
-Backend syntax, tests, and Flask smoke endpoints:
-
-```bash
-python scripts/verify_backend.py --smoke
-```
-
-Frontend production build without touching the checked-in working tree:
+In a second terminal:
 
 ```powershell
 cd frontend
-$env:BUILD_PATH="../.codex-test/frontend-build-$(Get-Date -Format yyyyMMddHHmmss)"
-npm run build
+npm ci
+npm run dev
 ```
 
-On Windows, using a fresh `BUILD_PATH` avoids failures when a previous `frontend/build` artifact is locked by a running dev server or file watcher.
+Open `http://127.0.0.1:3000`. Vite proxies `/api` to `http://localhost:5000`. Without a backend, discovery and local library features still work; PDF and AI controls show connection guidance.
 
-CI runs equivalent backend checks and a frontend production build through `.github/workflows/ci.yml`.
+For a standalone discovery-only production preview:
 
-Latest local validation performed through the public app/API:
+```powershell
+cd frontend
+npm run build
+npm run preview
+```
 
-- Backend tests: `14 passed`
-- Frontend production build: passed with a fresh `.codex-test/frontend-build-*` output folder
-- Black-box app flow: PDF upload, document fetch, RAG chat, history, markdown export, code generation, podcast script, citation analysis, equation text, equation image fallback, GitHub matcher, generated-output download, and negative input handling
-- Image equation uploads degrade gracefully when OCR dependencies are missing if equation text is supplied, returning an `ocr_warning` instead of a server error
+## Configuration
 
-## Core API
-
-| Method | Endpoint | Purpose |
+| Variable | Where | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | Backward-compatible health and dependency snapshot. |
-| `GET` | `/api/system/health` | Detailed health, SLOs, runtime warnings, and scale limits. |
-| `GET` | `/api/system/readiness` | Readiness gate for database and storage dependencies. |
-| `GET` | `/api/system/metrics` | Queue, rate limiter, and retrieval metrics. |
-| `POST` | `/api/upload/pdf` | Upload, parse, chunk, index, and analyze a PDF. |
-| `POST` | `/api/upload/pdf?async=true` | Queue PDF processing and return a background job ID. |
-| `POST` | `/api/chat` | Orchestrated chat across specialized agents. |
-| `POST` | `/api/equation` | Analyze equation text or image. |
-| `POST` | `/api/code` | Generate downloadable PyTorch scaffolds. |
-| `POST` | `/api/citations` | Extract and analyze citations and related-work themes. |
-| `POST` | `/api/github` | Match GitHub repositories to a research topic or links. |
-| `POST` | `/api/podcast` | Generate podcast script and optional audio. |
-| `GET` | `/api/jobs/{job_id}` | Poll background job status. |
-| `GET` | `/api/generated-outputs/{id}/download` | Download generated artifacts. |
+| `GEMINI_API_KEY` | Backend environment only | Enable generative research chat, summaries and comparisons |
+| `GEMINI_MODEL` | Backend | Configurable Gemini model; default `gemini-2.5-flash`. Confirm access and availability in your provider account. |
+| `GITHUB_TOKEN` | Backend, optional | Higher GitHub metadata quota |
+| `OPENALEX_API_KEY` | Backend, optional | Authenticated OpenAlex reference enrichment |
+| `SECRET_KEY` | Backend | Strong random production secret |
+| `ADMIN_API_KEY` | Backend | Protect administrative routes; never embed it in a frontend build |
+| `REQUIRE_ADMIN_AUTH` | Backend | `true` in public hosting; local example uses `false` |
+| `CORS_ORIGINS` | Backend | Exact comma-separated frontend origins, e.g. `https://pruthvi226.github.io` |
+| `REACT_APP_API_URL` | Frontend build / GitHub repository variable | Public HTTPS backend origin, no trailing API path; blank builds discovery mode |
+| `PUBLIC_URL` | Frontend build | Repository base path, set automatically by the Pages workflow |
+| `DATA_FOLDER` and storage paths | Backend | Put database, uploads, indices and generated files on persistent storage |
 
-See [docs/API_CONTRACT.md](docs/API_CONTRACT.md) for the full API contract.
+See [`.env.example`](.env.example) and [`frontend/.env.example`](frontend/.env.example). Only the public API origin is embedded by Vite. Production builds never include admin/provider keys. A same-origin Nginx deployment uses `REACT_APP_API_URL=/`; this is distinct from a standalone Pages build.
 
-## Repository Structure
+## Testing
+
+```powershell
+python scripts/verify_backend.py --smoke
+cd frontend
+npm run lint
+npm test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+npm audit
+```
+
+On a system with Chrome already installed, set `$env:E2E_CHROME='true'` to use Chrome. Browser tests run against the production preview server and use deterministic publisher fixtures **only in tests**. They cover discovery, filters, bookmarks, note persistence, comparison selection, downloads, errors, empty states, hash routing, back navigation, themes, keyboard focus, static capability states, and accessibility at desktop/tablet/mobile sizes.
+
+An opt-in live Crossref browser check uses `$env:E2E_LIVE='true'; npm run test:e2e -- live.spec.js`. To reproduce the connected PDF browser test, run `python scripts/make_test_pdf.py`, start an isolated local backend, build with `REACT_APP_API_URL` pointing to it, then set `E2E_CONNECTED=true` and run `npm run test:e2e -- connected.spec.js`. Keep provider credentials unset for the missing-key assertion. These integration checks are separate from deterministic CI.
+
+GitHub Pages subpath verification on PowerShell:
+
+```powershell
+$env:PUBLIC_URL='/AI_Research_Assistant/'
+$env:E2E_BASE_PATH='/AI_Research_Assistant/'
+npm run build
+npm run test:e2e
+```
+
+`BUILD_PATH` can point at a fresh local output folder when Windows locks an existing build. Use the same `BUILD_PATH` for build and preview. Tests requiring child processes or SQLite temporary files may require a normal terminal outside a restricted Windows sandbox.
+
+Backend integration tests generate an actual PDF and exercise upload, extraction, document reload, original PDF, retrieval QA, history, Markdown export, code compilation, equations, and briefing scripts. AI success/error paths are tested with isolated provider doubles; an authenticated live Gemini run has **not** been verified because no server credential was supplied.
+
+## GitHub Pages deployment
+
+The repository remote is [Pruthvi226/AI_Research_Assistant](https://github.com/Pruthvi226/AI_Research_Assistant). It has not been updated by this implementation session.
+
+1. Renew GitHub CLI authentication with `gh auth login` in your terminal. Do not paste a token into chat.
+2. Review changes, commit the intended source files, and push to `main` or `master`. Preserve any unrelated work already in your checkout.
+3. In repository **Settings → Pages**, set **Source → GitHub Actions**.
+4. Optionally set **Settings → Secrets and variables → Actions → Variables → `REACT_APP_API_URL`** to the backend HTTPS origin. It is a public configuration value, not a secret. Leave blank for discovery mode.
+5. Run the **Deploy GitHub Pages** workflow. It lints, tests, builds with Pages' actual base path, uploads the static artifact, and deploys using GitHub's official Pages actions.
+6. Verify the workflow's returned URL, every navigation tab, an actual Crossref search, and, when connected, PDF upload and chat. Refresh `#library` directly to check routing.
+
+The expected URL for this repository name is `https://pruthvi226.github.io/AI_Research_Assistant/`; **this is a deployment target, not a claim that this version is live**. Hash navigation avoids Pages server-rewrite requirements. All build assets and the favicon respect the configured repository path.
+
+Workflow: [`.github/workflows/pages.yml`](.github/workflows/pages.yml). General verification: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+## Backend deployment
+
+[`render.yaml`](render.yaml) is schema-validated and prepared for a single Docker web service with a 1 GB persistent disk. **Compute and disk incur hosting charges; review the plan in Render before creating it.** It has not been applied.
+
+1. Push the reviewed source to GitHub, then create a Blueprint from that repository in your chosen Render workspace.
+2. Review the compute plan and disk cost. The default plan selection is left to Render; confirm its current specification before creating the service.
+3. Set `GEMINI_API_KEY` through Render's secret environment UI. `SECRET_KEY` and `ADMIN_API_KEY` are generated; keep them server-side. Optional provider credentials can be added there too.
+4. Set `CORS_ORIGINS` to the exact Pages origin (no repository path). Existing Blueprint configuration uses `https://pruthvi226.github.io`.
+5. Deploy and verify `/api/system/readiness` returns HTTP 200. Set the resulting HTTPS service URL as the GitHub `REACT_APP_API_URL` repository variable, then rerun Pages deployment.
+6. Verify actual cloud-backed generation, error handling, upload polling, source links, persistence after redeployment, and provider quotas.
+
+The Docker command honors `$PORT`. All runtime files use `/app/data`; disk-backed SQLite needs one service instance. In-process jobs do not survive restarts. Expect deploy downtime with a service-attached disk, and maintain SQLite-consistent backups.
+
+For local Docker, `docker compose up --build` serves Nginx on port 3000 and Flask on port 5000. Nginx permits the public Crossref API in its connection policy. Docker has not been executed in this environment.
+
+## Repository guide
 
 ```text
-backend/
-  app.py                 Flask entrypoint and route wiring
-  agents/                Specialized task agents
-  routes/                API route registration modules
-  services/              LLM, OCR, audio, GitHub, jobs, health services
-  utils/                 API helpers, prompts, validators, artifacts
-  tests/                 Backend unit tests
-  data/                  Runtime data folders tracked with .gitkeep only
-frontend/
-  src/                   React app
-  Dockerfile             Static frontend build served by Nginx
-docs/
-  API_CONTRACT.md
-  INTERNSHIP_REVIEW.md
-  SYSTEM_DESIGN.md
-scripts/
-  verify_backend.py
-docker-compose.yml
-PRODUCTION.md
+frontend/src/App.jsx                 Workspace, routing and research flows
+frontend/src/components/PaperCard.jsx Reusable result/bookmark card
+frontend/src/components/Markdown.jsx  Lazy-loaded safe report rendering
+frontend/src/research.js              Metadata, citations, downloads and search
+frontend/src/api.js                   Backend client, validation and job polling
+frontend/e2e/                         Production browser checks
+backend/app.py                       Flask application and existing API adapters
+backend/routes/research_routes.py     Evidence-backed chat and review endpoints
+backend/services/research_service.py  Bounded metadata fetches and cache
+backend/agents/                      Existing specialized research tools
+backend/tests/                       Unit, security and real document-flow tests
+docs/IMPLEMENTATION_REPORT.md         Original audit, decisions and limitations
+docs/screenshots/                    Captured desktop and mobile UI
 ```
 
-## Deployment Readiness Checklist
+`backend/app/` is an incomplete older FastAPI scaffold; it is not the running service. `backend/requirements_prod.txt` now installs the Flask runtime instead of the unrelated scaffold dependencies. Some legacy React components remain in source for reference but are not bundled. Pre-existing deleted files were not restored over the user's work.
 
-- Set `SECRET_KEY` and restrict `CORS_ORIGINS` before public deployment.
-- Keep `.env`, SQLite files, uploads, generated audio/code/markdown, and local build outputs out of Git.
-- Run `python scripts/verify_backend.py --smoke` before release.
-- Run the frontend production build with a temporary `BUILD_PATH`.
-- Confirm `GET /api/system/readiness` returns `200` after deployment.
-- Back up the Docker data volume if using SQLite in production.
-- Put TLS, authentication, and metrics protection in front of public deployments.
+## Limits and next improvements
 
-## Scale-Out Roadmap
+- No public deployment is claimed until authenticated publishing and live checks are complete.
+- Gemini is optional for local extraction but required for genuine generative chat/reviews; model/provider failures are shown or labeled as local fallback.
+- Crossref coverage depends on publisher deposits. Abstracts, citation counts, and PDF links may be absent; linked full text may be paywalled. Citation formats are drafts to verify before publication.
+- Literature reviews use available abstracts, not retrieved full text. Missing methodologies, datasets, metrics, and findings must remain explicitly unreported. Proposed research gaps are hypotheses.
+- PDF upload currently supports text PDFs up to 20 MB. Scanned/encrypted/unextractable PDFs produce errors; there is no OCR PDF pipeline. Image OCR requires Tesseract for the existing equation API.
+- The browser holds one general conversation, with bounded turns and local export. Document history is persisted by backend workspace. There is no account sync, session archive UI, or private tenant isolation.
+- Local code is a generic scaffold, not a reproduction of the paper. Local equation output is a template, not a verified derivation. Review all generated code before running it.
+- Audio remains available through the existing API; the UI exposes scripts. Audio generation depends on external TTS and is not live-verified here.
+- For private or larger production use: add user authentication and ownership checks, a durable queue, PostgreSQL, object storage, shared rate limiting, retention policies, and telemetry before scaling out.
 
-1. Move SQLite to PostgreSQL with migrations.
-2. Move in-process jobs to Redis/Celery, Cloud Tasks, or another durable queue.
-3. Move uploads and generated artifacts to object storage.
-4. Move rate limiting to Redis or the API gateway.
-5. Split retrieval/indexing into worker-owned services.
-6. Add authentication, user workspaces, tenant IDs, and authorization checks.
-7. Add OpenTelemetry traces and Prometheus-compatible metrics.
-
-## Resume Bullets
-
-- Built a full-stack multi-agent AI research assistant with Flask, React, Gemini, SQLite, RAG retrieval, OCR, TTS, and Docker.
-- Designed source-grounded QA over uploaded PDFs with page-aware chunks, lexical/FAISS retrieval modes, and local fallback behavior.
-- Added production-style controls including request tracing, readiness/metrics endpoints, bounded async jobs, rate limiting, CI, and deployment docs.
-- Documented system architecture, API contracts, SLO targets, failure modes, and a scale-out migration path to production infrastructure.
+See the [implementation report](docs/IMPLEMENTATION_REPORT.md), [API contract](docs/API_CONTRACT.md), and [system design](docs/SYSTEM_DESIGN.md).

@@ -42,5 +42,5 @@ class PodcastAgent:
             "intent": "podcast_generation",
             "response": response,
             "sources": [],
-            "artifacts": {"script": script, "audio_path": audio_path, "audio_url": audio_url},
+            "artifacts": {"script": script, "audio_path": audio_path, "audio_url": audio_url, "mode": self.llm.last_mode if self.llm and self.llm.is_available else "local_template"},
         }

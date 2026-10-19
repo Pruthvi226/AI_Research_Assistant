@@ -9,12 +9,15 @@ __pycache__/
 backend/.pytest_cache/
 *.pyc
 venv/
+.venv/
 backend/venv/
 
 # Local verification/build output
 .codex-test/
 frontend/build/
 frontend/build-test/
+frontend/test-results/
+frontend/playwright-report/
 
 # Local databases, uploads, indexes, and generated artifacts
 *.sqlite
@@ -50,3 +53,6 @@ frontend/*-server.err.log
 .env
 backend/.env
 frontend/.env
+.env.*
+!.env.example
+!**/.env.example

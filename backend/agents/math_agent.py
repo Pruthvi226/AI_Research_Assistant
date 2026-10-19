@@ -30,6 +30,7 @@ class MathEquationAgent:
         else:
             data = self._fallback_equation(equation_text)
         data["ocr_text"] = ocr_text
+        data["mode"] = self.llm.last_mode if self.llm and self.llm.is_available else 'local_template'
         if ocr_warning:
             data["ocr_warning"] = ocr_warning
 

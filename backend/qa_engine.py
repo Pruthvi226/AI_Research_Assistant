@@ -14,10 +14,7 @@ from config import EmbeddingConfig, InsightsConfig
 if TYPE_CHECKING:
     from embeddings_engine import EmbeddingEngine
 
-try:
-    from transformers import pipeline
-except ImportError:
-    pipeline = None
+pipeline = None
 
 
 logger = logging.getLogger(__name__)
@@ -60,10 +57,12 @@ class QAEngine:
 
     @property
     def summarizer(self):
+        global pipeline
         if not self.insights_config.USE_TRANSFORMER_FALLBACK:
             raise RuntimeError("Transformer fallback is disabled.")
         if pipeline is None:
-            raise ImportError("transformers required. pip install transformers torch")
+            from transformers import pipeline as transformer_pipeline
+            pipeline = transformer_pipeline
         if self._summarizer is None:
             self._summarizer = pipeline(
                 "summarization",

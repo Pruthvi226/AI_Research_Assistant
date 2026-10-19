@@ -19,10 +19,7 @@ try:
 except ImportError:
     np = None
 
-try:
-    from sentence_transformers import SentenceTransformer
-except ImportError:
-    SentenceTransformer = None
+SentenceTransformer = None
 
 try:
     import faiss
@@ -34,7 +31,14 @@ class EmbeddingEngine:
     """Creates and searches an in-memory index over document chunks."""
 
     def __init__(self, config: Optional[EmbeddingConfig] = None):
+        global SentenceTransformer
         self.config = config or EmbeddingConfig()
+        if self.config.USE_SEMANTIC_EMBEDDINGS and SentenceTransformer is None:
+            try:
+                from sentence_transformers import SentenceTransformer as encoder
+                SentenceTransformer = encoder
+            except ImportError:
+                pass
         self.use_semantic = bool(
             self.config.USE_SEMANTIC_EMBEDDINGS and SentenceTransformer and faiss and np is not None
         )

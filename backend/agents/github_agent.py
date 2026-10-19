@@ -19,7 +19,7 @@ class GitHubRepoMatcherAgent:
             "intent": "github_repo_matching",
             "response": response,
             "sources": [repo.get("html_url", "") for repo in repos if repo.get("html_url")],
-            "artifacts": {"repositories": repos},
+            "artifacts": {"repositories": repos, "mode": "github_metadata"},
         }
 
     @staticmethod

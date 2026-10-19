@@ -22,11 +22,11 @@ class CitationAgent:
             references = {ref_num: references.get(str(ref_num), "")}
 
         citations = []
-        for key, raw in list(references.items())[:20]:
+        for index, (key, raw) in enumerate(list(references.items())[:20]):
             if not raw:
                 continue
             details = None
-            if self.scholarly_service:
+            if self.scholarly_service and index < 3:
                 try:
                     details = self.scholarly_service.search_paper_by_title(raw)
                 except Exception:
@@ -45,7 +45,7 @@ class CitationAgent:
             "intent": "citation_analysis",
             "response": response,
             "sources": [item["raw_text"] for item in citations[:5]],
-            "artifacts": {"citations": citations, "themes": themes},
+            "artifacts": {"citations": citations, "themes": themes, "mode": "metadata_extraction"},
         }
 
     @staticmethod

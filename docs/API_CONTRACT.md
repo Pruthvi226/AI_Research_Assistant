@@ -2,6 +2,15 @@
 
 Base URL in local development: `http://localhost:5000`.
 
+## Research workspace additions
+
+- `POST /api/research/answer`: JSON `{ "question": "...", "history": [{ "role": "user", "content": "..." }] }`. Question is 2–4000 characters; at most ten history messages. The backend retrieves publication evidence from Crossref. Returns `{ response, sources, mode: "gemini", evidence }`; sources include title, authors, year, URL and available abstract. Requires server-side Gemini configuration. Missing configuration: 503. Provider/metadata failure: 502. Invalid payload: 400.
+- `POST /api/research/review`: JSON `{ "paper_ids": ["10.xxxx/a", "10.xxxx/b"] }`. Accepts two to eight distinct DOIs. The backend retrieves metadata concurrently with bounded requests and generates an abstract-level literature review. Same response/error contract as research answers. Missing fields must remain unreported; proposed gaps are hypotheses.
+- `POST /api/synthesis`: alias for the retained uploaded-PDF comparison endpoint. Body `{ "session_ids": ["id1", "id2"] }`, two to eight documents. Requires Gemini. Returns `{ headers, comparisons }`.
+- `GET /api/documents/{id}/file`: original PDF, with a validated path under the configured upload folder. Frontend source links use `#page=N`.
+
+New research endpoints return at least `{ error: "actionable message" }` for failures; older endpoints may additionally include the fields below. No API key is returned by these routes. Document/AI output modes distinguish Gemini, local extraction/templates, and metadata tools. The backend is a shared demonstration workspace; there is no private per-user document ownership.
+
 All JSON error responses follow this shape:
 
 ```json

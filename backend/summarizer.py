@@ -11,10 +11,7 @@ from typing import Dict, List, Optional
 
 from config import SummarizerConfig
 
-try:
-    from transformers import pipeline
-except ImportError:
-    pipeline = None
+pipeline = None
 
 
 class PaperSummarizer:
@@ -41,10 +38,12 @@ class PaperSummarizer:
 
     @property
     def summarizer_pipeline(self):
+        global pipeline
         if not self.config.USE_TRANSFORMER_FALLBACK:
             raise RuntimeError("Transformer fallback is disabled.")
         if pipeline is None:
-            raise ImportError("transformers required. pip install transformers torch")
+            from transformers import pipeline as transformer_pipeline
+            pipeline = transformer_pipeline
         if self._pipe is None:
             self._pipe = pipeline(
                 "summarization",

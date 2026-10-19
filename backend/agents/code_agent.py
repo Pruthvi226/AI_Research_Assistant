@@ -12,7 +12,7 @@ class CodeGenerationAgent:
         context = (document_text or "")[:90000]
         if self.llm and self.llm.is_available:
             code = self._llm_code(topic, context)
-            mode = "gemini"
+            mode = self.llm.last_mode
         else:
             code = self._fallback_code(topic)
             mode = "local_template"

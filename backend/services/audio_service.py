@@ -42,7 +42,7 @@ Summary or context:
         try:
             from gtts import gTTS
 
-            gTTS(text=script, lang="en", tld="com", slow=False).save(str(output_path))
+            gTTS(text=script, lang="en", tld="com", slow=False, timeout=20).save(str(output_path))
             return str(output_path)
         except Exception:
             return None

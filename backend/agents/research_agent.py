@@ -15,6 +15,7 @@ class ResearchPaperAgent:
         document_text: str = "",
         filename: str = "",
         summary: Optional[Dict[str, Any]] = None,
+        **_: Any,
     ) -> Dict[str, Any]:
         text = (document_text or "").strip()
         summary = summary or {}
@@ -29,7 +30,7 @@ class ResearchPaperAgent:
             "intent": "paper_analysis",
             "response": response,
             "sources": [],
-            "artifacts": {"analysis": structured},
+            "artifacts": {"analysis": structured, "mode": self.llm.last_mode if self.llm and self.llm.is_available else "local_extractive"},
         }
 
     def _llm_analysis(self, text: str, filename: str) -> Dict[str, str]:
@@ -60,13 +61,13 @@ Paper text:
 
         return {
             "problem_statement": self._clean(abstract) or "The paper's problem statement could not be confidently extracted.",
-            "main_contribution": self._clean(contribution) or "The core contribution appears to be a proposed method or analysis described in the paper.",
+            "main_contribution": self._clean(contribution) or "No explicit contribution was detected in the available text.",
             "methodology": self._clean(methodology) or "Methodology details were not clearly detected in the extracted text.",
             "dataset_used": self._clean(dataset) or "No explicit dataset name was detected in the available text.",
             "results": self._clean(results) or "Results were not clearly detected in the available text.",
             "limitations": self._clean(limitations) or "No explicit limitations section was detected.",
-            "future_scope": self._find_sentences(text, ["future", "extend", "improve"], 2) or "Future work can build on the paper by validating the method on broader data and stronger baselines.",
-            "beginner_summary": self._clean(abstract) or "This paper studies a research problem, proposes a method, evaluates it, and discusses its implications.",
+            "future_scope": self._find_sentences(text, ["future", "extend", "improve"], 2) or "No explicit future research direction was detected.",
+            "beginner_summary": self._clean(abstract) or "Not enough source text to create a summary.",
         }
 
     @staticmethod

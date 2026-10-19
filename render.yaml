@@ -1,0 +1,34 @@
+# Create only after reviewing the paid compute/disk plan in Render.
+services:
+  - type: web
+    name: scientia-research-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/system/readiness
+    numInstances: 1
+    disk:
+      name: scientia-research-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: REQUIRE_ADMIN_AUTH
+        value: 'true'
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://pruthvi226.github.io
+      - key: MAX_UPLOAD_MB
+        value: '20'
+      - key: JOB_WORKERS
+        value: '1'
+      - key: JOB_MAX_IN_FLIGHT
+        value: '5'
+      - key: RATE_LIMIT_PER_MINUTE
+        value: '60'

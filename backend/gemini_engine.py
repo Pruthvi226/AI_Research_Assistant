@@ -1,20 +1,12 @@
 import json
 import logging
+import re
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from typing import Dict, Any, List, Optional
 from config import AIConfig
 
 logger = logging.getLogger(__name__)
-genai = None
-
-
-def _load_genai():
-    global genai
-    if genai is None:
-        import google.generativeai as loaded_genai
-        genai = loaded_genai
-    return genai
-
-
 def _clean_json_text(text: str) -> str:
     cleaned_text = text.strip()
     if cleaned_text.startswith("```"):
@@ -73,16 +65,8 @@ class GeminiEngine:
         return f"{key[:6]}...{key[-4:]}" if len(key) > 10 else "********"
 
     def _init_client(self):
-        """Configure the genai client if a key is available."""
-        if self.is_valid_api_key(self.api_key):
-            try:
-                _load_genai().configure(api_key=self.api_key)
-                self._configured = True
-            except Exception as e:
-                logger.error(f"Failed to configure Gemini client: {e}")
-                self._configured = False
-        else:
-            self._configured = False
+        """Use the supported REST API; private credentials stay in request headers."""
+        self._configured = self.is_valid_api_key(self.api_key)
 
     @property
     def is_available(self) -> bool:
@@ -94,15 +78,24 @@ class GeminiEngine:
         if not self.is_available:
             raise ValueError("Gemini API key is not configured. Please supply a valid API key in Settings.")
         try:
-            model = _load_genai().GenerativeModel(self.model_name)
-            kwargs = {}
+            if not re.fullmatch(r"[a-zA-Z0-9._-]+", self.model_name):
+                raise ValueError("Invalid model identifier")
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
             if json_mode:
-                kwargs["generation_config"] = {"response_mime_type": "application/json"}
-            response = model.generate_content(prompt, **kwargs)
-            return response.text.strip()
-        except Exception as e:
-            logger.error(f"Gemini generation failed: {e}")
-            raise ValueError(f"Gemini generation failed: {str(e)}")
+                payload["generationConfig"] = {"responseMimeType": "application/json"}
+            req = Request(f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent",
+                          data=json.dumps(payload).encode(),
+                          headers={"Content-Type": "application/json", "x-goog-api-key": self.api_key})
+            with urlopen(req, timeout=35) as response:
+                result = json.loads(response.read(4_000_000))
+            parts = result.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+            text = "\n".join(p.get("text", "") for p in parts).strip()
+            if not text:
+                raise ValueError("No text returned by AI provider")
+            return text
+        except (HTTPError, URLError, TimeoutError, ValueError, IndexError, KeyError):
+            logger.warning("Gemini request failed; check provider availability and server configuration")
+            raise ValueError("AI provider request failed. Check the server configuration or retry later.") from None
 
     def generate_json(self, prompt: str) -> Dict[str, Any]:
         """Generate JSON and parse it defensively."""
@@ -202,10 +195,10 @@ class GeminiEngine:
         history_str = ""
         if history:
             history_str = "Conversation History:\n"
-            for h in history:
+            for h in history[-10:]:
                 role = "User" if h.get("role") == "user" else "Assistant"
                 # Support both 'content' and 'text' keys
-                content = h.get("content") or h.get("text") or ""
+                content = (h.get("content") or h.get("text") or "")[:4000]
                 history_str += f"{role}: {content}\n"
             history_str += "\n"
 

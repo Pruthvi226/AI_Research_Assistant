@@ -2,6 +2,8 @@ import urllib.parse
 import urllib.request
 import json
 import logging
+import os
+from functools import lru_cache
 from typing import Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -31,6 +33,7 @@ class ScholarlyService:
     """
 
     @staticmethod
+    @lru_cache(maxsize=256)
     def search_paper_by_title(title: str) -> Optional[Dict[str, Any]]:
         """
         Query OpenAlex API for a paper by title and return citation counts,
@@ -45,9 +48,12 @@ class ScholarlyService:
         url = f"https://api.openalex.org/works?search={encoded_query}&limit=1"
 
         try:
+            headers = {"User-Agent": "Scientia-Research/2.0"}
+            if os.environ.get('OPENALEX_API_KEY'):
+                headers['Authorization'] = f"Bearer {os.environ['OPENALEX_API_KEY']}"
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "Scientia.ai Academic Assistant/1.0 (mailto:assistant@scientia.ai)"}
+                headers=headers
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode())

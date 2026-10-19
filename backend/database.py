@@ -133,6 +133,9 @@ class DBManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_session ON chats(session_id, id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_created_at ON agent_logs(created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_generated_outputs_session ON generated_outputs(session_id, id)")
+            columns = {row[1] for row in conn.execute('PRAGMA table_info(documents)')}
+            if 'analysis_meta' not in columns:
+                conn.execute("ALTER TABLE documents ADD COLUMN analysis_meta TEXT DEFAULT '{}'")
             conn.commit()
 
     # Document APIs
@@ -174,6 +177,8 @@ class DBManager:
                     json.dumps(data.get("references", {}))
                 )
             )
+            conn.execute('UPDATE documents SET analysis_meta = ? WHERE id = ?',
+                         (json.dumps({key: data[key] for key in ('agent_analysis', 'performance', 'selected_agent') if key in data}), doc_id))
             conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
             for index, record in enumerate(chunk_records):
                 chunk = record.get("content", "")
@@ -239,7 +244,8 @@ class DBManager:
                 "research_gaps": json.loads(row["research_gaps"] or "[]"),
                 "suggested_titles": json.loads(row["suggested_titles"] or "[]"),
                 "important_sentences": json.loads(row["important_sentences"] or "[]"),
-                "references": json.loads(row["references"] or "{}")
+                "references": json.loads(row["references"] or "{}"),
+                **json.loads(row['analysis_meta'] or '{}'),
             }
 
     def get_document_content(self, doc_id: str) -> Optional[Dict[str, Any]]:
