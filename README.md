@@ -2,9 +2,9 @@
 
 A research assistant for discovering academic publications, organizing evidence, reading PDFs, and building source-backed research conversations and reviews. The React frontend runs on GitHub Pages; a Flask backend preserves PDF processing, Gemini, retrieval, equation, code, citation, GitHub, and briefing tools.
 
-**Live application:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). The GitHub Pages frontend is connected to the [free Render backend](https://scientia-research-api.onrender.com). Discovery, PDF extraction and local document chat are available. Gemini generation requires a server-side provider key and remains unavailable until configured.
+**Live application:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). The GitHub Pages frontend is connected to the [free Render backend](https://scientia-research-api.onrender.com), with Gemini configured server-side. Live browser verification passed on 20 October 2026 for source-backed AI research chat, follow-up questions, PDF summaries, document QA and literature reviews from real DOI sources. No page errors occurred.
 
-**Free backend:** Deployed in Singapore using Render's **Free** compute plan without a persistent disk. [Service dashboard](https://dashboard.render.com/web/srv-dbb69tgm7kps73c96rq0). PDFs and backend history are temporary and reset on restarts, redeploys, and idle spin-down. Browser bookmarks and notes remain local. [`render.yaml`](render.yaml) preserves the free configuration for future Blueprint use. Set `GEMINI_API_KEY` only in the backend environment to enable generative features.
+**Free backend:** Deployed in Singapore using Render's **Free** compute plan without a persistent disk. [Service dashboard](https://dashboard.render.com/web/srv-dbb69tgm7kps73c96rq0). PDFs and backend history are temporary and reset on restarts, redeploys, and idle spin-down. Browser bookmarks and notes remain local. [`render.yaml`](render.yaml) preserves the free configuration for future Blueprint use. Gemini uses `gemini-3.5-flash-lite`; its API key remains only in the backend environment.
 
 ![Scientia desktop workspace](docs/screenshots/desktop.png)
 
@@ -93,7 +93,7 @@ npm run preview
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `GEMINI_API_KEY` | Backend environment only | Enable generative research chat, summaries and comparisons |
-| `GEMINI_MODEL` | Backend | Configurable Gemini model; default `gemini-2.5-flash`. Confirm access and availability in your provider account. |
+| `GEMINI_MODEL` | Backend | Configurable Gemini model; default `gemini-3.5-flash-lite`. Confirm access and availability in your provider account. |
 | `GITHUB_TOKEN` | Backend, optional | Higher GitHub metadata quota |
 | `OPENALEX_API_KEY` | Backend, optional | Authenticated OpenAlex reference enrichment |
 | `SECRET_KEY` | Backend | Strong random production secret |
@@ -134,7 +134,7 @@ npm run test:e2e
 
 `BUILD_PATH` can point at a fresh local output folder when Windows locks an existing build. Use the same `BUILD_PATH` for build and preview. Tests requiring child processes or SQLite temporary files may require a normal terminal outside a restricted Windows sandbox.
 
-Backend integration tests generate an actual PDF and exercise upload, extraction, document reload, original PDF, retrieval QA, history, Markdown export, code compilation, equations, and briefing scripts. AI success/error paths are tested with isolated provider doubles; an authenticated live Gemini run has **not** been verified because no server credential was supplied.
+Backend integration tests generate an actual PDF and exercise upload, extraction, document reload, original PDF, retrieval QA, history, Markdown export, code compilation, equations, and briefing scripts. AI success/error paths have isolated provider regression tests. Authenticated live Gemini generation was also verified through the public browser workflows on 20 October 2026; see [verification results](docs/VERIFICATION.md).
 
 ## GitHub Pages deployment
 
@@ -188,7 +188,7 @@ docs/screenshots/                    Captured desktop and mobile UI
 
 ## Limits and next improvements
 
-- The frontend and free backend are published. Local PDF tools work without a provider key; Gemini generation remains pending a backend credential. Backend storage is temporary on the free plan.
+- The frontend and free backend are published and Gemini generation is verified. Backend storage is temporary on the free plan; Gemini usage remains subject to the provider's project quotas.
 - Gemini is optional for local extraction but required for genuine generative chat/reviews; model/provider failures are shown or labeled as local fallback.
 - Crossref coverage depends on publisher deposits. Abstracts, citation counts, and PDF links may be absent; linked full text may be paywalled. Citation formats are drafts to verify before publication.
 - Literature reviews use available abstracts, not retrieved full text. Missing methodologies, datasets, metrics, and findings must remain explicitly unreported. Proposed research gaps are hypotheses.

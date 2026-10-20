@@ -48,7 +48,7 @@ Local artifacts are under `.codex-test/production-build` and `.codex-test/connec
 ## Remaining unverified or pending
 
 - The backend was subsequently deployed on Render's Free plan at the user's request. No paid disk was provisioned. Backend runtime data is ephemeral; see the free-hosting release record below.
-- No live Gemini generation was run. Provider success and failure paths were tested using isolated doubles; missing configuration was tested through the actual UI/backend.
+- Live Gemini generation was initially unavailable; the subsequent authenticated verification is recorded below. Provider failure paths and missing configuration also have isolated regression coverage.
 - Docker containers and external TTS/OCR infrastructure were not executed. Existing APIs remain available and their local text/script paths were exercised.
 - The audit resolves `backend/requirements_docker.txt`; it is not a security audit of all unrelated packages installed on the workstation or the optional ML stack.
 - Automated accessibility tests supplement the visual/keyboard checks; they do not prove complete accessibility compliance.
@@ -67,3 +67,20 @@ Local artifacts are under `.codex-test/production-build` and `.codex-test/connec
 - Testing exposed and fixed a document identifier mismatch in the frontend. The connected browser regression test now covers reopening after reload.
 - Backend checks: 29 tests and four smoke endpoints passed. Frontend lint, six unit tests and production build passed. New startup code generates private runtime secrets if none were provisioned.
 - Runtime storage is temporary. Backend PDFs/history can be lost on idle spin-down, restart or redeploy; browser notes/bookmarks are separate. A Gemini provider key remains required for generative AI. No paid disk or paid compute plan was created.
+
+## Authenticated Gemini verification — 20 October 2026
+
+After the user configured the Gemini key, a real request exposed a model-compatibility failure that the application had previously hidden behind a generic HTTP 502. The model configuration was migrated from legacy `gemini-2.5-flash` to `gemini-3.5-flash-lite`, preserving the user's key without reading or exposing it. Google documents restricted Gemini 2.5 access for new projects and recommends the current models: https://ai.google.dev/gemini-api/docs/deprecations/.
+
+Source release: `469c2ef25e675795edd72a077e1ac3422b79cb54`. Render deploy `dep-dbbgcquh60os739uqa2g` reached **live**. [Pages deployment](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39379108625) and [CI](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39379108656) succeeded.
+
+The actual public-site browser test passed all of the following with real Google generation, not provider doubles:
+
+- Research answer with `mode: gemini` and six server-retrieved publication sources.
+- Context-aware follow-up research answer.
+- Real PDF upload and summary with `performance.mode: gemini`.
+- Document QA with `artifacts.mode: gemini` and the correct dataset size from the PDF.
+- A generated literature review using actual DOI-linked publications.
+- Zero browser page errors during these workflows.
+
+Regression checks passed: 31 backend tests, four smoke endpoints, frontend lint, six frontend tests and production build. Provider failures now distinguish quota limits, model access, rejected credentials and temporary outages without disclosing raw provider responses or credentials. The interface identifies configured AI accurately; request timeouts allow for cloud generation and free-host startup.

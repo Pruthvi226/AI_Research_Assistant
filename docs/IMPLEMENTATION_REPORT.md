@@ -53,6 +53,8 @@ The user subsequently requested free hosting. On 20 October 2026, the configurat
 
 Public deployment testing found and fixed the document-list identifier mismatch (`id` versus `session_id`) so stored papers and their chats can reopen. A browser regression check now covers the reload path. Health response validation also distinguishes Render startup HTML from a valid API response.
 
+The user then configured Gemini. Authenticated testing exposed a model-compatibility failure with the legacy default. The service now uses `gemini-3.5-flash-lite`, and actual public-browser tests passed research answers, follow-ups, PDF summaries, document QA and literature reviews. Provider errors have safe, actionable status codes and messages for access, quota and transient failures. See the authenticated verification record in `docs/VERIFICATION.md`.
+
 ## Architectural limits
 
 The backend remains a shared demonstration workspace. It does not implement user accounts, tenant ownership, or end-to-end private document authorization. Admin authentication covers administrative operations, not full user isolation. This is explicitly stated in the interface and README. Confidential/multi-user production launch requires those controls.
