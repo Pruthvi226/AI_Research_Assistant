@@ -172,6 +172,6 @@ class AIConfig:
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
     OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
     PROVIDER = os.environ.get("AI_PROVIDER", "gemini")  # "gemini", "openai", "local"
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
     OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 

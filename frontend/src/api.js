@@ -4,7 +4,7 @@ const configuredOrigin = process.env.REACT_APP_API_URL || "";
 export const API_BASE = configuredOrigin.replace(/\/$/, "");
 export const backendConfigured =
   Boolean(configuredOrigin) || process.env.NODE_ENV === "development";
-const api = axios.create({ baseURL: API_BASE, timeout: 75000 });
+const api = axios.create({ baseURL: API_BASE, timeout: 120000 });
 api.interceptors.request.use((config) => {
   if (!backendConfigured)
     throw new Error(

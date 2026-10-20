@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 from flask import Flask
 from routes.research_routes import register_research_routes
 from services.research_service import normalize, paper_by_doi
+from gemini_engine import GeminiProviderError
 
 
 class ResearchRoutesTest(unittest.TestCase):
@@ -58,6 +59,13 @@ class ResearchRoutesTest(unittest.TestCase):
         response = self.client.post('/api/research/answer', json={'question': 'a valid question'})
         self.assertEqual(502, response.status_code)
         self.assertNotIn('private-provider-secret', response.get_data(as_text=True))
+
+    @patch('routes.research_routes.search_papers', return_value=[{'title': 'Real paper'}])
+    def test_quota_errors_keep_actionable_public_status_and_code(self, search):
+        self.engine.generate_text.side_effect = GeminiProviderError('Gemini quota is exhausted.', 'ai_rate_limited', 429)
+        response = self.client.post('/api/research/answer', json={'question': 'a valid question'})
+        self.assertEqual(429, response.status_code)
+        self.assertEqual('ai_rate_limited', response.get_json()['code'])
 
 
 class ResearchMetadataTest(unittest.TestCase):

@@ -618,6 +618,7 @@ def health():
         "transformer_fallback": bool(getattr(summarizer.config, "USE_TRANSFORMER_FALLBACK", False)),
         "storage_mode": os.environ.get('STORAGE_MODE', 'local'),
         "hosting_tier": os.environ.get('HOSTING_TIER', ''),
+        "ai_model": gemini.model_name,
         "jobs": len(job_manager.list(limit=500)),
         "environment_warnings": validate_runtime_environment(),
     }), status_code

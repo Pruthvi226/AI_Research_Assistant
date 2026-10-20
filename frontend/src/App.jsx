@@ -539,7 +539,7 @@ export default function App() {
               <i />
               {connected
                 ? aiEnabled
-                  ? "AI connected"
+                  ? "AI configured"
                   : "Local analysis"
                 : backendConfigured
                   ? status === null

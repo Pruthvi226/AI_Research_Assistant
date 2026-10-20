@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from flask import jsonify, request
 from services.research_service import paper_by_doi, search_papers
+from gemini_engine import GeminiProviderError
 
 
 def register_research_routes(app, engine_provider):
@@ -21,6 +22,8 @@ def register_research_routes(app, engine_provider):
             if not isinstance(text, str) or not text.strip():
                 raise RuntimeError("Empty generation")
             return jsonify(response=text, sources=sources, mode="gemini", evidence="publisher_metadata_and_available_abstracts")
+        except GeminiProviderError as exc:
+            return jsonify(error=str(exc), code=exc.code), exc.status
         except Exception:
             app.logger.warning("Research generation failed")
             return jsonify(error="The AI provider could not complete this request. Please retry or check server configuration."), 502

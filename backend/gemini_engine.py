@@ -7,6 +7,36 @@ from typing import Dict, Any, List, Optional
 from config import AIConfig
 
 logger = logging.getLogger(__name__)
+
+
+class GeminiProviderError(ValueError):
+    """Safe provider diagnostics; never include credentials or upstream response bodies."""
+    def __init__(self, message, code='ai_provider_error', status=502):
+        super().__init__(message)
+        self.code = code
+        self.status = status
+
+
+def provider_error(exc):
+    status = exc.code
+    try:
+        data = json.loads(exc.read(16000)).get('error', {})
+    except (ValueError, AttributeError):
+        data = {}
+    message = str(data.get('message', '')).lower()
+    if 'leaked' in message or 'expired' in message:
+        return GeminiProviderError('Google rejected this Gemini key as blocked or expired. Replace GEMINI_API_KEY in Render with an active Google AI Studio key.', 'ai_key_rejected', 503)
+    if status in {401, 403} or (status == 400 and ('api key' in message or 'api_key' in message)):
+        return GeminiProviderError('Google rejected the Gemini credentials or permissions. Check the key and API restrictions in Google AI Studio, then update GEMINI_API_KEY in Render.', 'ai_auth_error', 503)
+    if status == 404:
+        return GeminiProviderError('The configured Gemini model is unavailable for this API key. Update GEMINI_MODEL in Render to an available text-generation model.', 'ai_model_unavailable', 503)
+    if status == 429:
+        return GeminiProviderError('Google Gemini quota is exhausted or rate-limited for this project. Wait for quota to reset or check the project limits in Google AI Studio.', 'ai_rate_limited', 429)
+    if status in {402, 412}:
+        return GeminiProviderError('The Gemini project cannot serve requests under its current account configuration. Check project access and usage limits in Google AI Studio.', 'ai_project_unavailable', 503)
+    if status >= 500:
+        return GeminiProviderError('Google Gemini is temporarily unavailable. Please retry shortly.', 'ai_temporarily_unavailable', 503)
+    return GeminiProviderError('AI provider request failed. Check the Gemini model and server configuration or retry later.')
 def _clean_json_text(text: str) -> str:
     cleaned_text = text.strip()
     if cleaned_text.startswith("```"):
@@ -93,7 +123,11 @@ class GeminiEngine:
             if not text:
                 raise ValueError("No text returned by AI provider")
             return text
-        except (HTTPError, URLError, TimeoutError, ValueError, IndexError, KeyError):
+        except HTTPError as exc:
+            error = provider_error(exc)
+            logger.warning('Gemini request failed: model=%s provider_status=%s code=%s', self.model_name, exc.code, error.code)
+            raise error from None
+        except (URLError, TimeoutError, ValueError, IndexError, KeyError):
             logger.warning("Gemini request failed; check provider availability and server configuration")
             raise ValueError("AI provider request failed. Check the server configuration or retry later.") from None
 
