@@ -14,9 +14,21 @@ export function plainText(value = "") {
 }
 export function normalizeWork(work) {
   work = work && typeof work === "object" ? work : {};
-  const year =
-    (work.published?.["date-parts"] || work.issued?.["date-parts"])?.[0]?.[0] ||
-    null;
+  const dateParts =
+    (work.published?.["date-parts"] ||
+      work["published-print"]?.["date-parts"] ||
+      work["published-online"]?.["date-parts"] ||
+      work.issued?.["date-parts"])?.[0] || [];
+  const year = dateParts[0] || null;
+  const publishedDate = dateParts.length
+    ? [
+        String(dateParts[0]).padStart(4, "0"),
+        dateParts[1] ? String(dateParts[1]).padStart(2, "0") : null,
+        dateParts[2] ? String(dateParts[2]).padStart(2, "0") : null,
+      ]
+        .filter(Boolean)
+        .join("-")
+    : "";
   const authors = (Array.isArray(work.author) ? work.author : [])
     .filter((a) => a && typeof a === "object")
     .map((a) =>
@@ -30,6 +42,9 @@ export function normalizeWork(work) {
     title: plainText(work.title?.[0] || "Untitled work"),
     authors,
     year,
+    publishedDate,
+    type: plainText(work.type || "Publication type unavailable"),
+    publisher: plainText(work.publisher || ""),
     venue: plainText(
       work["container-title"]?.[0] || work.publisher || "Academic publication",
     ),
@@ -48,8 +63,24 @@ export function normalizeWork(work) {
 }
 export async function discover(
   query,
-  { year = "", sort = "relevance", page = 1, field = "all", signal } = {},
+  {
+    year = "",
+    fromYear = year,
+    untilYear = "",
+    type = "",
+    sort = "relevance",
+    page = 1,
+    field = "all",
+    signal,
+  } = {},
 ) {
+  if (
+    fromYear &&
+    untilYear &&
+    Number(fromYear) > Number(untilYear)
+  ) {
+    throw new Error("The start year must not be later than the end year.");
+  }
   const params = new URLSearchParams({
     rows: "12",
     offset: String((page - 1) * 12),
@@ -66,7 +97,11 @@ export async function discover(
       }[sort] || "relevance",
     order: "desc",
   });
-  if (year) params.set("filter", `from-pub-date:${year}-01-01`);
+  const filters = [];
+  if (fromYear) filters.push(`from-pub-date:${fromYear}-01-01`);
+  if (untilYear) filters.push(`until-pub-date:${untilYear}-12-31`);
+  if (type) filters.push(`type:${type}`);
+  if (filters.length) params.set("filter", filters.join(","));
   let response;
   for (let attempt = 0; attempt < 2; attempt++) {
     response = await fetch(`https://api.crossref.org/works?${params}`, {

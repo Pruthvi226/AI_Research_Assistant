@@ -38,10 +38,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
       - name: Build React app
         env:
           CI: "true"
-          PUBLIC_URL: /AI_Research_Assistant/
+          REACT_APP_API_URL: http://127.0.0.1:5000
         run: npm run build
       - name: Frontend unit tests
         run: npm test
@@ -54,6 +56,4 @@ jobs:
       - name: Production browser and accessibility checks
         env:
           CI: 'true'
-          PUBLIC_URL: /AI_Research_Assistant/
-          E2E_BASE_PATH: /AI_Research_Assistant/
         run: npm run test:e2e

@@ -82,6 +82,7 @@ class OrchestratorAgent:
                     intent=result["intent"],
                     query=query,
                     response=result.get("response", ""),
+                    owner_id=context.get("user_id", ""),
                     status=status,
                     metadata=result.get("artifacts", {}),
                 )

@@ -74,7 +74,7 @@ class SystemHealthService:
             "jobs": self.job_manager.stats(),
             "rate_limiter": self.rate_limiter.stats(),
             "retrieval": {
-                "mode": "semantic" if self.embedding_engine.use_semantic else "lexical",
+                "mode": self.embedding_engine.mode,
                 "has_active_index": bool(self.embedding_engine.has_index),
                 "active_chunks": len(getattr(self.embedding_engine, "_chunks", [])),
             },
@@ -131,7 +131,7 @@ class SystemHealthService:
     def _retrieval_check(self) -> Dict[str, Any]:
         return {
             "status": "ok",
-            "mode": "semantic" if self.embedding_engine.use_semantic else "lexical",
+            "mode": self.embedding_engine.mode,
             "has_active_index": bool(self.embedding_engine.has_index),
             "active_chunks": len(getattr(self.embedding_engine, "_chunks", [])),
         }

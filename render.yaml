@@ -1,4 +1,5 @@
-# Free demo hosting. Backend files and SQLite reset on restart/redeploy/spin-down.
+# Free/demo deployment configuration only. Local account records and files are
+# ephemeral here; configure approved durable storage before private production use.
 services:
   - type: web
     name: scientia-research-api
@@ -13,10 +14,6 @@ services:
         value: production
       - key: SECRET_KEY
         generateValue: true
-      - key: ADMIN_API_KEY
-        generateValue: true
-      - key: REQUIRE_ADMIN_AUTH
-        value: 'true'
       - key: GEMINI_API_KEY
         sync: false
       - key: STORAGE_MODE
@@ -33,3 +30,7 @@ services:
         value: '5'
       - key: RATE_LIMIT_PER_MINUTE
         value: '60'
+      - key: AUTH_RATE_LIMIT_PER_MINUTE
+        value: '10'
+      - key: AUTH_SESSION_TTL_SECONDS
+        value: '604800'

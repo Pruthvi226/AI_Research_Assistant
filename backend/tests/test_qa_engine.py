@@ -30,14 +30,43 @@ class QAEngineTest(unittest.TestCase):
 
         answer, used_chunks = engine.answer("How does dense retrieval improve quality?")
 
-        self.assertEqual(2, len(used_chunks))
+        self.assertEqual(1, len(used_chunks))
         self.assertIn("Dense retrieval improves answer quality", answer)
 
     def test_get_relevant_chunks_respects_top_k(self):
-        chunks = [("first", 0.1), ("second", 0.2), ("third", 0.3)]
+        chunks = [
+            ("method first evidence", 0.1),
+            ("method second evidence", 0.2),
+            ("method third evidence", 0.3),
+        ]
         engine = QAEngine(FakeEmbeddingEngine(chunks))
 
-        self.assertEqual(["first", "second"], engine.get_relevant_chunks("query", top_k=2))
+        self.assertEqual(
+            ["method first evidence", "method second evidence"],
+            engine.get_relevant_chunks("method", top_k=2),
+        )
+
+    def test_unrelated_evidence_is_filtered_and_question_abstains(self):
+        engine = QAEngine(FakeEmbeddingEngine([
+            ("The paper evaluates a small image classification dataset.", 0.95),
+        ]))
+
+        answer, sources = engine.answer("How do galaxies form?")
+
+        self.assertEqual([], sources)
+        self.assertEqual(QAEngine.ABSTENTION, answer)
+
+    def test_extractive_answer_links_evidence_to_document_page(self):
+        chunk = (
+            "[Source 4 | methods.pdf | page 7 | chunk 4]\n"
+            "The algorithm uses gradient descent to optimize the model weights."
+        )
+        engine = QAEngine(FakeEmbeddingEngine([(chunk, 0.1)]))
+
+        answer, sources = engine.answer("How does the algorithm optimize model weights?")
+
+        self.assertEqual([chunk], sources)
+        self.assertIn("[Source 4 | methods.pdf | page 7 | chunk 4]", answer)
 
 
 if __name__ == "__main__":

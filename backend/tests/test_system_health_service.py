@@ -29,6 +29,7 @@ class FakeDB:
 
 class FakeEmbeddingEngine:
     use_semantic = False
+    mode = "hybrid_bm25"
     has_index = True
     _chunks = ["chunk one", "chunk two"]
 
@@ -89,7 +90,7 @@ class SystemHealthServiceTest(unittest.TestCase):
 
         self.assertEqual(1, metrics["jobs"]["in_flight"])
         self.assertEqual(3, metrics["rate_limiter"]["accepted"])
-        self.assertEqual("lexical", metrics["retrieval"]["mode"])
+        self.assertEqual("hybrid_bm25", metrics["retrieval"]["mode"])
 
 
 if __name__ == "__main__":

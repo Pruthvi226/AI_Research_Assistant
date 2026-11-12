@@ -70,8 +70,6 @@ class FlaskConfig:
         ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"],
     )
     REQUEST_ID_HEADER = os.environ.get("REQUEST_ID_HEADER", "X-Request-ID")
-    ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "").strip()
-    REQUIRE_ADMIN_AUTH = _bool_env("REQUIRE_ADMIN_AUTH", ENVIRONMENT.lower() == "production")
     SECURITY_HEADERS_ENABLED = _bool_env("SECURITY_HEADERS_ENABLED", True)
     UPLOAD_EXTENSIONS = {".pdf"}
     ALLOWED_EXTENSIONS = {"pdf"}
@@ -83,6 +81,8 @@ class FlaskConfig:
     MAX_QA_CONTEXT_CHARS = _int_env("MAX_QA_CONTEXT_CHARS", 12000)
     RATE_LIMIT_PER_MINUTE = _int_env("RATE_LIMIT_PER_MINUTE", 120)
     RATE_LIMIT_WINDOW_SECONDS = _int_env("RATE_LIMIT_WINDOW_SECONDS", 60)
+    AUTH_RATE_LIMIT_PER_MINUTE = _int_env("AUTH_RATE_LIMIT_PER_MINUTE", 10)
+    AUTH_SESSION_TTL_SECONDS = _int_env("AUTH_SESSION_TTL_SECONDS", 604800)
     JOB_WORKERS = _int_env("JOB_WORKERS", 3)
     JOB_RETENTION_LIMIT = _int_env("JOB_RETENTION_LIMIT", 500)
     JOB_MAX_IN_FLIGHT = _int_env("JOB_MAX_IN_FLIGHT", 50)
@@ -97,8 +97,6 @@ def validate_runtime_environment() -> list:
         warnings.append("GEMINI_API_KEY is not set; cloud LLM features will use local fallbacks.")
     if not os.environ.get("GITHUB_TOKEN"):
         warnings.append("GITHUB_TOKEN is not set; GitHub API rate limits may be lower.")
-    if FlaskConfig.REQUIRE_ADMIN_AUTH and not FlaskConfig.ADMIN_API_KEY:
-        warnings.append("REQUIRE_ADMIN_AUTH is enabled but ADMIN_API_KEY is not set; sensitive API routes will reject requests.")
     for folder_name, folder in {
         "DATA_FOLDER": DATA_FOLDER,
         "UPLOAD_FOLDER": UPLOAD_FOLDER,
@@ -113,6 +111,10 @@ def validate_runtime_environment() -> list:
 # PDF processing
 class PDFConfig:
     """PDF extraction and processing settings."""
+    OCR_ENABLED = _bool_env("PDF_OCR_ENABLED", True)
+    OCR_MAX_PAGES = max(0, _int_env("PDF_OCR_MAX_PAGES", 12))
+    OCR_DPI = min(200, max(120, _int_env("PDF_OCR_DPI", 150)))
+    OCR_LANGUAGE = os.environ.get("PDF_OCR_LANGUAGE", "eng")
     # Section headers that typically precede references (case-insensitive patterns)
     REFERENCE_SECTION_PATTERNS = [
         "references",
@@ -174,4 +176,3 @@ class AIConfig:
     PROVIDER = os.environ.get("AI_PROVIDER", "gemini")  # "gemini", "openai", "local"
     GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
     OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
-

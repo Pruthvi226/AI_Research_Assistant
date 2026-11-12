@@ -43,6 +43,11 @@ class QAEngine:
     TRANSFORMER_MIN_LENGTH = 30
     EXTRACTIVE_SENTENCE_LIMIT = 4
     ANSWER_CHAR_LIMIT = 1200
+    MAX_LEXICAL_DISTANCE = 0.78
+    MAX_SEMANTIC_DISTANCE = 0.55
+    EMPTY_CONTENT = "No relevant content is available in the selected document(s)."
+    ABSTENTION = "I couldn't find supporting evidence in the selected document(s). Please rephrase the question or select another source."
+    SOURCE_RE = re.compile(r"\[Source\s+\d+\s+\|\s+([^\]|]+)\s+\|\s+page\s+(\d+)\s+\|\s+chunk\s+(\d+)\]")
 
     def __init__(
         self,
@@ -73,18 +78,42 @@ class QAEngine:
 
     def get_relevant_chunks(self, question: str, top_k: Optional[int] = None) -> List[str]:
         """Return retrieved chunks ordered by relevance."""
+        relevant, _ = self._retrieve_relevant_chunks(question, top_k)
+        return relevant
+
+    def _retrieve_relevant_chunks(
+        self, question: str, top_k: Optional[int] = None
+    ) -> Tuple[List[str], bool]:
+        query_terms = set(self._tokenize(question))
+        if not query_terms:
+            return [], False
         limit = top_k or self.embed_config.TOP_K_RESULTS
         results = self.embedding_engine.search(question.strip(), top_k=limit)
-        return [chunk for chunk, _ in results]
+        semantic = bool(getattr(self.embedding_engine, "use_semantic", False))
+        max_distance = self.MAX_SEMANTIC_DISTANCE if semantic else self.MAX_LEXICAL_DISTANCE
+        relevant = []
+        for chunk, distance in results:
+            if distance > max_distance:
+                continue
+            if not semantic:
+                chunk_terms = set(self._tokenize(chunk))
+                expanded_terms = getattr(
+                    self.embedding_engine, "expanded_query_terms", None
+                )
+                searchable_terms = (
+                    expanded_terms(question) if expanded_terms else query_terms
+                )
+                overlap = searchable_terms.intersection(chunk_terms)
+                if not overlap or len(overlap) / len(query_terms) < 0.2:
+                    continue
+            relevant.append(chunk)
+        return relevant, bool(results)
 
     def answer(self, question: str, top_k: Optional[int] = None) -> Tuple[str, List[str]]:
         """Return an answer and the chunks used to produce it."""
-        chunks = self.get_relevant_chunks(question, top_k=top_k)
+        chunks, has_retrieved_content = self._retrieve_relevant_chunks(question, top_k)
         if not chunks:
-            return (
-                "No relevant content found in the paper. Please upload a paper first or rephrase your question.",
-                [],
-            )
+            return (self.ABSTENTION if has_retrieved_content else self.EMPTY_CONTENT), []
 
         if self.insights_config.USE_TRANSFORMER_FALLBACK:
             transformer_answer = self._try_transformer_answer(question, chunks)
@@ -115,10 +144,21 @@ class QAEngine:
         scored_sentences = self._rank_sentences(query_terms, chunks)
         if scored_sentences:
             top_sentences = [sentence for _, sentence in scored_sentences[: self.EXTRACTIVE_SENTENCE_LIMIT]]
-            return self._cap_answer(" ".join(self._unique(top_sentences)))
+            answer = self._cap_answer(" ".join(self._unique(top_sentences)))
+            citations = self.source_citations(chunks)
+            return f"{answer}\n\nSources: {', '.join(citations)}" if citations else answer
+        return self.ABSTENTION
 
-        first_chunk = chunks[0].strip()
-        return self._cap_answer(first_chunk)
+    @classmethod
+    def source_citations(cls, chunks: Sequence[str]) -> List[str]:
+        citations = []
+        for chunk in chunks:
+            match = cls.SOURCE_RE.search(chunk)
+            if match:
+                citation = match.group(0)
+                if citation not in citations:
+                    citations.append(citation)
+        return citations
 
     def _rank_sentences(self, query_terms: set, chunks: Sequence[str]) -> List[Tuple[float, str]]:
         scored: List[Tuple[float, str]] = []

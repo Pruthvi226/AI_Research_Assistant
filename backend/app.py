@@ -3,7 +3,7 @@ import uuid
 import logging
 import time
 import json
-import hmac
+import re
 import threading
 from functools import wraps
 from pathlib import Path
@@ -45,6 +45,8 @@ from services.audio_service import AudioService
 from services.github_service import GitHubService
 from services.system_health_service import SystemHealthService
 from services.job_service import JobManager, JobQueueFull
+from auth_service import AuthService
+from routes.auth_routes import register_auth_routes
 from routes.chat_routes import register_chat_routes
 from routes.upload_routes import register_upload_routes
 from routes.equation_routes import register_equation_routes
@@ -55,7 +57,11 @@ from routes.podcast_routes import register_podcast_routes
 from routes.research_routes import register_research_routes
 from utils.validators import IMAGE_EXTENSIONS, validate_extension
 from utils.api import SlidingWindowRateLimiter, api_error
-from utils.artifacts import write_text_artifact
+from utils.artifacts import (
+    write_briefing_pdf,
+    write_scaffold_bundle,
+    write_text_artifact,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -75,6 +81,7 @@ GENERATED_MARKDOWN_FOLDER.mkdir(parents=True, exist_ok=True)
 
 # Initialize database
 db = DBManager()
+auth_service = register_auth_routes(app, db)
 _gemini_cache = {"key": None, "engine": None}
 _active_index_key = None
 _retrieval_lock = threading.RLock()
@@ -104,45 +111,13 @@ rate_limiter = SlidingWindowRateLimiter(
     limit=FlaskConfig.RATE_LIMIT_PER_MINUTE,
     window_seconds=FlaskConfig.RATE_LIMIT_WINDOW_SECONDS,
 )
+auth_rate_limiter = SlidingWindowRateLimiter(
+    limit=FlaskConfig.AUTH_RATE_LIMIT_PER_MINUTE,
+    window_seconds=FlaskConfig.RATE_LIMIT_WINDOW_SECONDS,
+)
 
 for env_warning in validate_runtime_environment():
     logger.warning(env_warning)
-
-
-SENSITIVE_EXACT_PATHS = {
-    "/settings",
-    "/api/settings",
-    "/api/agent-logs",
-}
-SENSITIVE_PREFIXES = (
-    "/api/generated-outputs",
-    "/api/jobs",
-    "/api/generated-audio",
-)
-
-
-def sensitive_route_requires_admin() -> bool:
-    path = request.path.rstrip("/") or "/"
-    if path in SENSITIVE_EXACT_PATHS:
-        return True
-    if request.method == "GET" and path.startswith("/api/jobs/"):
-        return False
-    if any(path.startswith(prefix) for prefix in SENSITIVE_PREFIXES):
-        return True
-    if request.method == "DELETE" and (path.startswith("/documents/") or path.startswith("/api/documents/")):
-        return True
-    if path.startswith("/api/documents/") and path.endswith("/export/markdown"):
-        return True
-    return False
-
-
-def provided_admin_key() -> str:
-    return (
-        request.headers.get("X-Admin-Key")
-        or request.cookies.get("scientia_admin")
-        or ""
-    ).strip()
-
 
 
 @app.before_request
@@ -152,16 +127,33 @@ def start_request_context():
 
 
 @app.before_request
-def enforce_admin_api_auth():
+def enforce_user_auth():
     if request.method == "OPTIONS":
         return None
-    if not FlaskConfig.REQUIRE_ADMIN_AUTH or not sensitive_route_requires_admin():
+    path = request.path.rstrip("/") or "/"
+    if path in {"/api/auth/register", "/api/auth/login"}:
+        if not auth_rate_limiter.check(request.remote_addr or "local"):
+            return api_error("Too many sign-in attempts. Please wait before retrying.", 429, "auth_rate_limited")
         return None
-    expected = FlaskConfig.ADMIN_API_KEY
-    if not expected:
-        return api_error("Admin API protection is enabled but ADMIN_API_KEY is not configured.", 503, "admin_auth_not_configured")
-    if not hmac.compare_digest(provided_admin_key(), expected):
-        return api_error("Admin credentials are required for this endpoint.", 401, "admin_auth_required")
+    if path in {
+        "/health",
+        "/api/health",
+        "/api/system/health",
+        "/api/system/readiness",
+        "/api/auth/register",
+        "/api/auth/login",
+    }:
+        return None
+    authorization = request.headers.get("Authorization", "")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        return api_error("Sign in to access research data.", 401, "authentication_required")
+    user = auth_service.authenticate(token.strip())
+    if not user:
+        return api_error("Your session has expired. Sign in again.", 401, "invalid_session")
+    g.user = user
+    g.user_id = user["id"]
+    g.auth_token = token.strip()
     return None
 
 
@@ -239,9 +231,8 @@ def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in FlaskConfig.ALLOWED_EXTENSIONS
 
 def get_active_gemini_engine() -> GeminiEngine:
-    """Helper to instantiate GeminiEngine using either DB saved key or ENV key."""
-    saved_key = db.get_setting("gemini_api_key", "").strip()
-    key = saved_key if saved_key else os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
+    """Build the shared provider from server-side environment configuration."""
+    key = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
     if _gemini_cache["engine"] is None or _gemini_cache["key"] != key:
         _gemini_cache["key"] = key
         _gemini_cache["engine"] = GeminiEngine(api_key=key)
@@ -264,8 +255,38 @@ def build_page_chunk_records(filepath: str | Path, filename: str) -> tuple:
     ref_map = pdf_processor.extract_references(cleaned_text)
     full_text = pdf_processor.remove_references_section(cleaned_text)
     records = []
+    equations = []
+    headings = []
+    caption_candidates = []
+    extraction_methods = {}
+    ocr_statuses = {}
+    reference_pages = {}
+    for ref_num, reference in ref_map.items():
+        normalized_reference = " ".join(
+            re.findall(r"[a-z0-9]+", reference.lower())
+        )
+        reference_prefix = " ".join(normalized_reference.split()[:10])
+        for page in pages:
+            normalized_page = " ".join(
+                re.findall(r"[a-z0-9]+", page["text"].lower())
+            )
+            if reference_prefix and reference_prefix in normalized_page:
+                reference_pages[ref_num] = page["page"]
+                break
     source_idx = 0
     for page in pages:
+        extraction_method = page.get("extraction_method", "text")
+        extraction_methods[extraction_method] = extraction_methods.get(extraction_method, 0) + 1
+        ocr_status = page.get("ocr_status", "not_needed")
+        ocr_statuses[ocr_status] = ocr_statuses.get(ocr_status, 0) + 1
+        headings.extend(
+            {"page": page["page"], "text": heading}
+            for heading in page.get("headings", [])
+        )
+        equations.extend(page.get("equations", []))
+        caption_candidates.extend(page.get("captions", []))
+        if not page["text"]:
+            continue
         page_chunks = build_chunks(page["text"])
         for page_chunk_idx, page_chunk in enumerate(page_chunks):
             if not page_chunk.strip():
@@ -276,6 +297,7 @@ def build_page_chunk_records(filepath: str | Path, filename: str) -> tuple:
                 "metadata": {
                     "filename": filename,
                     "page": page["page"],
+                    "extraction_method": extraction_method,
                     "page_chunk_index": page_chunk_idx,
                     "chunk_index": source_idx,
                     "source_label": f"Source {source_idx + 1}",
@@ -296,7 +318,20 @@ def build_page_chunk_records(filepath: str | Path, filename: str) -> tuple:
             }
             for idx, chunk in enumerate(chunks)
         ]
-    return full_text, ref_map, chunks, records
+    import shutil
+    extraction_report = {
+        "page_count": len(pages),
+        "methods": extraction_methods,
+        "ocr_statuses": ocr_statuses,
+        "document_metadata": (pages[0].get("document_metadata", {}) if pages else {}),
+        "headings": headings[:100],
+        "caption_candidates": caption_candidates[:100],
+        "equations": equations[:100],
+        "reference_pages": reference_pages,
+        "ocr_pages": extraction_methods.get("tesseract_ocr", 0),
+        "ocr_available": bool(pdf_processor.config.OCR_ENABLED and shutil.which("tesseract")),
+    }
+    return full_text, ref_map, chunks, records, extraction_report
 
 def extract_document_text(filepath: str | Path) -> tuple:
     raw_text = pdf_processor.extract_text(filepath)
@@ -305,8 +340,8 @@ def extract_document_text(filepath: str | Path) -> tuple:
     full_text = pdf_processor.remove_references_section(cleaned_raw)
     return full_text, ref_map
 
-def load_document_text_and_chunks(session_id: str) -> tuple:
-    cached = db.get_document_content(session_id)
+def load_document_text_and_chunks(session_id: str, owner_id: str) -> tuple:
+    cached = db.get_document_content(session_id, owner_id)
     if not cached:
         raise ValueError(f"Document {session_id} not found.")
 
@@ -320,12 +355,14 @@ def load_document_text_and_chunks(session_id: str) -> tuple:
     if not filepath or not os.path.exists(filepath):
         raise ValueError(f"Document file for {session_id} is missing.")
 
-    doc = db.get_document(session_id) or {}
-    full_text, _, chunks, chunk_records = build_page_chunk_records(filepath, doc.get("filename", Path(filepath).name))
-    db.update_document_cache(session_id, full_text, chunks, chunk_records=chunk_records)
+    doc = db.get_document(session_id, owner_id) or {}
+    full_text, _, chunks, chunk_records, _ = build_page_chunk_records(
+        filepath, doc.get("filename", Path(filepath).name)
+    )
+    db.update_document_cache(session_id, owner_id, full_text, chunks, chunk_records=chunk_records)
     return full_text, chunks
 
-def ensure_search_index(session_ids: list) -> int:
+def ensure_search_index(session_ids: list, owner_id: str) -> int:
     """Create a reusable index for one or more selected documents."""
     global _active_index_key
     index_key = ",".join(session_ids)
@@ -338,7 +375,7 @@ def ensure_search_index(session_ids: list) -> int:
 
     all_chunks = []
     for s_id in session_ids:
-        _, doc_chunks = load_document_text_and_chunks(s_id)
+        _, doc_chunks = load_document_text_and_chunks(s_id, owner_id)
         all_chunks.extend(doc_chunks)
 
     if not all_chunks:
@@ -415,7 +452,7 @@ def build_markdown_report(doc: dict) -> str:
 
 
 @serialized_retrieval
-def process_saved_pdf(filepath: Path, filename: str, save_name: str, job_id: str | None = None) -> dict:
+def process_saved_pdf(filepath: Path, filename: str, save_name: str, owner_id: str, job_id: str | None = None) -> dict:
     """Process an already-saved PDF and return the normal upload payload."""
     global _active_index_key
     started_at = time.perf_counter()
@@ -425,9 +462,15 @@ def process_saved_pdf(filepath: Path, filename: str, save_name: str, job_id: str
     if job_id:
         job_manager.update(job_id, progress=10, message="Extracting PDF text and page-aware chunks")
 
-    full_text, ref_map, chunks, chunk_records = build_page_chunk_records(filepath, filename)
+    full_text, ref_map, chunks, chunk_records, extraction_report = build_page_chunk_records(filepath, filename)
     timings["extract_ms"] = round((time.perf_counter() - started_at) * 1000)
     if not full_text or len(full_text.strip()) < 100:
+        ocr_statuses = extraction_report.get("ocr_statuses", {})
+        if "unavailable" in ocr_statuses:
+            raise ValueError(
+                "Could not extract enough text. This appears to be a scanned PDF, "
+                "but OCR is unavailable on this runtime."
+            )
         raise ValueError("Could not extract enough text from the PDF")
 
     if job_id:
@@ -508,10 +551,20 @@ def process_saved_pdf(filepath: Path, filename: str, save_name: str, job_id: str
             "references": ref_map,
         }
 
+    response_payload.setdefault("summary", {}).setdefault(
+        "equations", extraction_report.get("equations", [])
+    )
+    response_payload["summary"]["equations"] = (
+        response_payload["summary"].get("equations")
+        or extraction_report.get("equations", [])
+    )
+    response_payload["summary"]["headings"] = extraction_report.get("headings", [])
+
     timings["analysis_ms"] = round((time.perf_counter() - analysis_started) * 1000)
     response_payload["performance"] = {
         "mode": analysis_mode,
-        "retrieval": "semantic" if embedding_engine.use_semantic else "lexical",
+        "retrieval": embedding_engine.mode,
+        "pdf_extraction": extraction_report,
         "chunks": len(chunks),
         "total_ms": round((time.perf_counter() - started_at) * 1000),
         "timings": timings,
@@ -536,6 +589,7 @@ def process_saved_pdf(filepath: Path, filename: str, save_name: str, job_id: str
             intent=paper_agent_result["intent"],
             query=f"Uploaded PDF: {filename}",
             response=paper_agent_result["response"],
+            owner_id=owner_id,
             metadata={"session_id": session_id, "filename": filename, "duration_ms": response_payload["performance"]["total_ms"]},
         )
     except Exception as e:
@@ -548,11 +602,12 @@ def process_saved_pdf(filepath: Path, filename: str, save_name: str, job_id: str
         filename,
         str(filepath),
         response_payload,
+        owner_id=owner_id,
         full_text=full_text,
         chunks=chunks,
         chunk_records=chunk_records,
     )
-    db.clear_chat_history(session_id)
+    db.clear_chat_history(session_id, owner_id)
     if job_id:
         job_manager.update(job_id, progress=95, message="Saving document workspace")
     return response_payload
@@ -614,7 +669,7 @@ def health():
         **snapshot,
         "message": "Scientia.ai Research Assistant API is running",
         "mode": "advanced (Gemini)" if gemini.is_available else "offline (fast local fallback)",
-        "retrieval": "semantic" if embedding_engine.use_semantic else "lexical",
+        "retrieval": embedding_engine.mode,
         "transformer_fallback": bool(getattr(summarizer.config, "USE_TRANSFORMER_FALLBACK", False)),
         "storage_mode": os.environ.get('STORAGE_MODE', 'local'),
         "hosting_tier": os.environ.get('HOSTING_TIER', ''),
@@ -648,6 +703,11 @@ def upload():
         filepath = UPLOAD_FOLDER / save_name
         file.save(str(filepath))
         timings["save_ms"] = round((time.perf_counter() - started_at) * 1000)
+        with filepath.open("rb") as saved_pdf:
+            header = saved_pdf.read(1024)
+        if b"%PDF-" not in header:
+            filepath.unlink(missing_ok=True)
+            return jsonify({"error": "The uploaded file does not contain a valid PDF header."}), 400
     except Exception as e:
         logger.error(f"Failed to save file: {e}")
         return jsonify({"error": f"Failed to save file: {str(e)}"}), 500
@@ -655,7 +715,9 @@ def upload():
     wants_async = str(request.args.get("async", request.form.get("async", ""))).lower() in {"1", "true", "yes"}
     if wants_async:
         try:
-            job_id = job_manager.submit("pdf_upload", process_saved_pdf, filepath, filename, save_name)
+            job_id = job_manager.submit(
+                "pdf_upload", process_saved_pdf, filepath, filename, save_name, owner_id=g.user_id
+            )
         except JobQueueFull as exc:
             filepath.unlink(missing_ok=True)
             return api_error(str(exc), 429, "job_queue_full")
@@ -667,7 +729,9 @@ def upload():
         }), 202
 
     try:
-        response_payload = process_saved_pdf(filepath=filepath, filename=filename, save_name=save_name)
+        response_payload = process_saved_pdf(
+            filepath=filepath, filename=filename, save_name=save_name, owner_id=g.user_id
+        )
         return jsonify(response_payload)
     except ValueError as e:
         logger.error(f"Failed to process PDF: {e}")
@@ -698,7 +762,7 @@ def ask():
     session_ids = [s.strip() for s in session_id.split(",") if s.strip()]
 
     try:
-        indexed_chunks = ensure_search_index(session_ids)
+        indexed_chunks = ensure_search_index(session_ids, g.user_id)
     except Exception as e:
         logger.error(f"Failed to prepare search index: {e}")
         return jsonify({"error": str(e)}), 400
@@ -711,7 +775,7 @@ def ask():
         relevant_chunks = []
 
     context = bounded_context(relevant_chunks)
-    history = db.get_chat_history(session_id)
+    history = db.get_chat_history(session_id, g.user_id)
 
     # Use Gemini or local QA
     gemini = get_active_gemini_engine()
@@ -738,14 +802,15 @@ def ask():
 
     # Save user/AI exchanges to SQLite
     try:
-        db.add_chat_msg(session_id, "user", question)
-        db.add_chat_msg(session_id, "assistant", answer, relevant_chunks)
+        db.add_chat_msg(session_id, "user", question, g.user_id)
+        db.add_chat_msg(session_id, "assistant", answer, g.user_id, relevant_chunks)
         db.log_chat(
             session_id=session_id,
             user_query=question,
             selected_agent="RAG Retrieval Agent",
             intent="source_grounded_qa",
             response=answer,
+            owner_id=g.user_id,
             sources=relevant_chunks[:3],
         )
         db.log_agent(
@@ -753,6 +818,7 @@ def ask():
             intent="source_grounded_qa",
             query=question,
             response=answer,
+            owner_id=g.user_id,
             metadata={"session_id": session_id, "retrieved_chunks": len(relevant_chunks)},
         )
     except Exception as e:
@@ -781,7 +847,7 @@ def history():
     if not session_id:
         return jsonify({"history": []})
     try:
-        history_list = db.get_chat_history(session_id)
+        history_list = db.get_chat_history(session_id, g.user_id)
         return jsonify({"history": history_list})
     except Exception as e:
         logger.error(f"Failed to load history: {e}")
@@ -795,7 +861,7 @@ def history():
 def get_documents():
     """List all saved research documents."""
     try:
-        docs = db.list_documents()
+        docs = db.list_documents(g.user_id)
         return jsonify({"documents": docs})
     except Exception as e:
         logger.error(f"Failed to list documents: {e}")
@@ -808,13 +874,16 @@ def manage_document(doc_id):
     global _active_index_key
     if request.method == "DELETE":
         try:
-            db.delete_document(doc_id)
+            if not db.delete_document(doc_id, g.user_id):
+                return jsonify({"error": "Document not found"}), 404
             # If the deleted paper was the active one, clear FAISS index state
             if _active_index_key and doc_id in _active_index_key.split(","):
                 embedding_engine._index = None
                 embedding_engine._chunks = []
                 embedding_engine._lexical_vectors = []
                 embedding_engine._lexical_norms = []
+                embedding_engine._doc_lengths = []
+                embedding_engine._document_frequency.clear()
                 _active_index_key = None
             return jsonify({"status": "success", "message": f"Document {doc_id} deleted."})
         except Exception as e:
@@ -823,13 +892,13 @@ def manage_document(doc_id):
     
     # GET method
     try:
-        doc = db.get_document(doc_id)
+        doc = db.get_document(doc_id, g.user_id)
         if not doc:
             return jsonify({"error": "Document not found"}), 404
         
         # Load local search index for this paper using cached chunks when available.
         try:
-            ensure_search_index([doc_id])
+            ensure_search_index([doc_id], g.user_id)
         except Exception as e:
             logger.error(f"Search index lazy load failed: {e}")
         
@@ -840,29 +909,21 @@ def manage_document(doc_id):
 
 @app.route("/settings", methods=["GET", "POST"])
 def manage_settings():
-    """Get or update dynamically configured settings."""
+    """Expose provider readiness without permitting users to mutate shared secrets."""
     if request.method == "POST":
-        data = request.get_json() or {}
-        gemini_key = data.get("gemini_api_key", "").strip()
-        try:
-            db.save_setting("gemini_api_key", gemini_key)
-            invalidate_gemini_cache()
-            return jsonify({"status": "success", "message": "API settings updated successfully."})
-        except Exception as e:
-            logger.error(f"Failed to save setting: {e}")
-            return jsonify({"error": str(e)}), 500
+        return api_error(
+            "AI provider credentials are configured by the service operator, not individual accounts.",
+            403,
+            "operator_configuration_required",
+        )
 
     # GET method
     try:
-        saved_key = db.get_setting("gemini_api_key", "")
         env_key = os.environ.get("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
-        active_key = saved_key if GeminiEngine.is_valid_api_key(saved_key) else env_key
-        has_key = GeminiEngine.is_valid_api_key(active_key)
-        # Mask the key for security before returning
+        has_key = GeminiEngine.is_valid_api_key(env_key)
         return jsonify({
             "has_key": has_key,
-            "masked_key": GeminiEngine.mask_api_key(active_key),
-            "source": "saved" if GeminiEngine.is_valid_api_key(saved_key) else ("environment" if has_key else "")
+            "source": "environment" if has_key else "",
         })
     except Exception as e:
         logger.error(f"Failed to load settings: {e}")
@@ -881,7 +942,7 @@ def get_citation():
         return jsonify({"error": "Missing session_id or ref_num"}), 400
 
     try:
-        doc = db.get_document(session_id)
+        doc = db.get_document(session_id, g.user_id)
         if not doc:
             return jsonify({"error": "Document not found"}), 404
         
@@ -928,7 +989,7 @@ def synthesize_documents():
     docs = []
     headers = {}
     for s_id in session_ids:
-        doc = db.get_document(s_id)
+        doc = db.get_document(s_id, g.user_id)
         if not doc:
             return jsonify({"error": f"Document {s_id} not found."}), 404
         docs.append(doc)
@@ -1019,7 +1080,7 @@ def create_podcast():
     if not session_id:
         return jsonify({"error": "Missing session_id"}), 400
 
-    doc = db.get_document(session_id)
+    doc = db.get_document(session_id, g.user_id)
     if not doc:
         return jsonify({"error": "Document not found"}), 404
 
@@ -1028,7 +1089,7 @@ def create_podcast():
         return jsonify({"error": "Gemini API key is not configured. Please add one in Settings."}), 400
 
     try:
-        full_text, _ = load_document_text_and_chunks(session_id)
+        full_text, _ = load_document_text_and_chunks(session_id, g.user_id)
 
         from podcast_service import PodcastService
         audio_path = PodcastService.generate_audio_overview(
@@ -1053,6 +1114,8 @@ def create_podcast():
 def stream_podcast(session_id):
     """Serve the synthesized podcast MP3 file directly."""
     filename = f"{session_id}_podcast.mp3"
+    if not db.get_document(session_id, g.user_id):
+        return jsonify({"error": "Document not found"}), 404
     return send_from_directory(UPLOAD_FOLDER, filename, mimetype="audio/mpeg")
 
 @app.route("/synthesize_code", methods=["POST"])
@@ -1064,7 +1127,7 @@ def synthesize_code():
     if not session_id:
         return jsonify({"error": "Missing session_id"}), 400
 
-    doc = db.get_document(session_id)
+    doc = db.get_document(session_id, g.user_id)
     if not doc:
         return jsonify({"error": "Document not found"}), 404
 
@@ -1073,7 +1136,7 @@ def synthesize_code():
         return jsonify({"error": "Gemini API key is not configured. Please add one in Settings."}), 400
 
     try:
-        full_text, _ = load_document_text_and_chunks(session_id)
+        full_text, _ = load_document_text_and_chunks(session_id, g.user_id)
 
         prompt = f"""You are a senior Machine Learning Architect. Analyze the methodology, neural network layers, parameters, algorithms, and technical processes described in the following research paper context.
         
@@ -1103,10 +1166,11 @@ def synthesize_code():
             if code.startswith("python"):
                 code = code[6:].strip()
 
-        code_path = write_text_artifact(
+        code_path = write_scaffold_bundle(
             GENERATED_CODE_FOLDER,
-            artifact_filename("code", session_id, "generated_model.py"),
+            artifact_filename("code", session_id, "scaffold.zip"),
             code,
+            source_title=doc.get("filename", ""),
         )
         output_id = db.save_generated_output(
             session_id=session_id,
@@ -1114,6 +1178,7 @@ def synthesize_code():
             title=Path(code_path).name,
             content=code,
             file_path=code_path,
+            owner_id=g.user_id,
             metadata={"source": "legacy_synthesize_code", "filename": doc.get("filename", "")},
         )
 
@@ -1135,10 +1200,10 @@ def synthesize_code():
 def _load_doc_context(session_id: str) -> tuple:
     if not session_id:
         return None, "", []
-    doc = db.get_document(session_id)
+    doc = db.get_document(session_id, g.user_id)
     if not doc:
         raise ValueError("Document not found")
-    full_text, chunks = load_document_text_and_chunks(session_id)
+    full_text, chunks = load_document_text_and_chunks(session_id, g.user_id)
     return doc, full_text, chunks
 
 
@@ -1168,6 +1233,10 @@ def api_chat_handler():
         return jsonify({"error": "Empty query. Please enter a question or task."}), 400
 
     doc, full_text, _ = (None, "", [])
+    if session_id:
+        session_ids = [item.strip() for item in session_id.split(",") if item.strip()]
+        if not session_ids or any(not db.get_document(item, g.user_id) for item in session_ids):
+            return jsonify({"error": "Document not found"}), 404
     if session_id and ',' not in session_id:
         try:
             doc, full_text, _ = _load_doc_context(session_id)
@@ -1183,6 +1252,7 @@ def api_chat_handler():
         query=query,
         session_id=session_id,
         payload=payload,
+        user_id=g.user_id,
         document_text=full_text,
         filename=(doc or {}).get("filename", ""),
         title=(doc or {}).get("filename", "Research request"),
@@ -1194,21 +1264,24 @@ def api_chat_handler():
     saved_output_id = None
     try:
         if session_id:
-            db.add_chat_msg(session_id, "user", query)
-            db.add_chat_msg(session_id, "assistant", result["response"], result.get("sources", []))
+            db.add_chat_msg(session_id, "user", query, g.user_id)
+            db.add_chat_msg(session_id, "assistant", result["response"], g.user_id, result.get("sources", []))
         db.log_chat(
             session_id=session_id or "general",
             user_query=query,
             selected_agent=result["selected_agent"],
             intent=result["intent"],
             response=result["response"],
+            owner_id=g.user_id,
             sources=result.get("sources", []),
         )
         if artifacts.get("code"):
-            code_path = write_text_artifact(
+            code_path = write_scaffold_bundle(
                 GENERATED_CODE_FOLDER,
-                artifact_filename("code", session_id or "general", artifacts.get("filename", "generated_model.py")),
+                artifact_filename("code", session_id or "general", "scaffold.zip"),
                 artifacts["code"],
+                source_title=(doc or {}).get("filename", ""),
+                source_mapping=artifacts.get("source_mapping"),
             )
             artifacts["file_path"] = code_path
             artifacts["download_url"] = ""
@@ -1218,6 +1291,7 @@ def api_chat_handler():
                 title=Path(code_path).name,
                 content=artifacts["code"],
                 file_path=code_path,
+                owner_id=g.user_id,
                 metadata=artifacts,
             )
         elif artifacts.get("script") or artifacts.get("audio_path"):
@@ -1227,6 +1301,7 @@ def api_chat_handler():
                 title="Podcast briefing",
                 content=artifacts.get("script", ""),
                 file_path=artifacts.get("audio_path", ""),
+                owner_id=g.user_id,
                 metadata=artifacts,
             )
         elif artifacts.get("latex"):
@@ -1235,6 +1310,7 @@ def api_chat_handler():
                 output_type="equation",
                 title="Equation analysis",
                 content=result["response"],
+                owner_id=g.user_id,
                 metadata=artifacts,
             )
         if saved_output_id:
@@ -1269,9 +1345,10 @@ def api_upload_image_handler():
             title=filepath.name,
             content=result["response"],
             file_path=str(filepath),
+            owner_id=g.user_id,
             metadata=result.get("artifacts", {}),
         )
-        db.log_agent(result["selected_agent"], result["intent"], query or filepath.name, result["response"], metadata=result.get("artifacts", {}))
+        db.log_agent(result["selected_agent"], result["intent"], query or filepath.name, result["response"], owner_id=g.user_id, metadata=result.get("artifacts", {}))
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -1290,20 +1367,40 @@ def api_equation_handler():
         else:
             data = request.get_json(silent=True) or {}
             query = (data.get("equation") or data.get("query") or "").strip()
+            context = data.get("context", "")
+            page = data.get("page")
+            filename = data.get("filename", "")
+            if not isinstance(context, str) or len(context) > 6000:
+                return jsonify(error="context must be a string up to 6000 characters."), 400
+            if page is not None and (type(page) is not int or page < 1):
+                return jsonify(error="page must be a positive integer."), 400
+            if not isinstance(filename, str) or len(filename) > 255:
+                return jsonify(error="filename must be a string up to 255 characters."), 400
             if data.get("image_path"):
                 return jsonify(error='Upload an image file rather than providing a server filesystem path.'), 400
             image_path = None
 
-        result = math_agent.run(query=query, image_path=image_path)
+        if request.files:
+            context = ""
+            page = None
+            filename = ""
+        result = math_agent.run(
+            query=query,
+            image_path=image_path,
+            context=context,
+            page=page,
+            filename=filename,
+        )
         db.save_generated_output(
             session_id="equation",
             output_type="equation",
             title="Equation analysis",
             content=result["response"],
             file_path=image_path or "",
+            owner_id=g.user_id,
             metadata=result.get("artifacts", {}),
         )
-        db.log_agent(result["selected_agent"], result["intent"], query or image_path or "equation", result["response"], metadata=result.get("artifacts", {}))
+        db.log_agent(result["selected_agent"], result["intent"], query or image_path or "equation", result["response"], owner_id=g.user_id, metadata=result.get("artifacts", {}))
         return jsonify(result)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -1322,13 +1419,16 @@ def api_code_handler():
             query=query,
             document_text=full_text,
             filename=(doc or {}).get("filename", ""),
+            summary=(doc or {}).get("summary", {}),
         )
         artifacts = result.get("artifacts", {})
         code = artifacts.get("code", "")
-        code_path = write_text_artifact(
+        code_path = write_scaffold_bundle(
             GENERATED_CODE_FOLDER,
-            artifact_filename("code", session_id or "general", artifacts.get("filename", "generated_model.py")),
+            artifact_filename("code", session_id or "general", "scaffold.zip"),
             code,
+            source_title=(doc or {}).get("filename", ""),
+            source_mapping=artifacts.get("source_mapping"),
         )
         artifacts["file_path"] = code_path
         output_id = db.save_generated_output(
@@ -1337,11 +1437,12 @@ def api_code_handler():
             title=Path(code_path).name,
             content=code,
             file_path=code_path,
+            owner_id=g.user_id,
             metadata=artifacts,
         )
         artifacts["download_url"] = f"/api/generated-outputs/{output_id}/download"
         result["artifacts"] = artifacts
-        db.log_agent(result["selected_agent"], result["intent"], query, result["response"], metadata=artifacts)
+        db.log_agent(result["selected_agent"], result["intent"], query, result["response"], owner_id=g.user_id, metadata=artifacts)
         return jsonify({
             **result,
             "code": code,
@@ -1365,6 +1466,12 @@ def api_citations_handler():
             query=query,
             document_text=full_text,
             references=(doc or {}).get("references", {}),
+            document_title=(doc or {}).get("filename", "Uploaded paper"),
+            reference_pages=(
+                (doc or {}).get("performance", {})
+                .get("pdf_extraction", {})
+                .get("reference_pages", {})
+            ),
             ref_num=str(ref_num) if ref_num else None,
         )
         citations = result.get("artifacts", {}).get("citations", [])
@@ -1374,6 +1481,8 @@ def api_citations_handler():
             "ref_num": citation.get("ref_num", ref_num),
             "raw_text": citation.get("raw_text", ""),
             "scholarly_found": bool(scholarly),
+            "resolution_status": citation.get("resolution_status", "unresolved"),
+            "verification_status": "unverified",
             "title": scholarly.get("title") or citation.get("raw_text", ""),
             "abstract": scholarly.get("abstract") or citation.get("summary", result["response"]),
             "authors": scholarly.get("authors"),
@@ -1381,8 +1490,16 @@ def api_citations_handler():
             "citations": scholarly.get("citations"),
             "url": scholarly.get("url"),
         }
-        db.log_agent(result["selected_agent"], result["intent"], query, result["response"], metadata=result.get("artifacts", {}))
-        return jsonify({**result, **compatibility, "citation": citation})
+        output_id = db.save_generated_output(
+            session_id=session_id or "general",
+            output_type="citation_analysis",
+            title=f"Citations: {(doc or {}).get('filename', 'research paper')}",
+            content=result["response"],
+            owner_id=g.user_id,
+            metadata=result.get("artifacts", {}),
+        )
+        db.log_agent(result["selected_agent"], result["intent"], query, result["response"], owner_id=g.user_id, metadata=result.get("artifacts", {}))
+        return jsonify({**result, **compatibility, "citation": citation, "output_id": output_id})
     except Exception as e:
         logger.error(f"Citation route failed: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1391,11 +1508,31 @@ def api_citations_handler():
 def api_github_handler():
     data = request.get_json(silent=True) or {}
     query = (data.get("query") or data.get("topic") or "").strip()
+    for field in ("paper_title", "doi"):
+        value = data.get(field, "")
+        if not isinstance(value, str) or len(value) > 1000:
+            return jsonify({"error": f"{field} must be a string up to 1000 characters."}), 400
     repo_links = data.get("repo_links") or data.get("repos") or []
+    if not isinstance(repo_links, list) or len(repo_links) > 10 or any(
+        not isinstance(link, str) or len(link) > 500 for link in repo_links
+    ):
+        return jsonify({"error": "repo_links must contain at most 10 URL strings."}), 400
     if not query and not repo_links:
         return jsonify({"error": "Provide a research topic or GitHub repository links."}), 400
-    result = github_agent.run(query=query, repo_links=repo_links)
-    db.log_agent(result["selected_agent"], result["intent"], query or ",".join(repo_links), result["response"], metadata=result.get("artifacts", {}))
+    session_id = data.get("session_id", "").strip()
+    try:
+        doc, full_text, _ = _load_doc_context(session_id) if session_id else (None, "", [])
+    except ValueError:
+        return jsonify({"error": "Document not found."}), 404
+    result = github_agent.run(
+        query=query,
+        repo_links=repo_links,
+        document_text=full_text,
+        filename=(doc or {}).get("filename", ""),
+        paper_title=data.get("paper_title", ""),
+        doi=data.get("doi", ""),
+    )
+    db.log_agent(result["selected_agent"], result["intent"], query or ",".join(repo_links), result["response"], owner_id=g.user_id, metadata=result.get("artifacts", {}))
     return jsonify({**result, "repositories": result.get("artifacts", {}).get("repositories", [])})
 
 
@@ -1429,11 +1566,12 @@ def api_podcast_handler():
             title=f"Podcast briefing: {title}",
             content=artifacts.get("script", ""),
             file_path=artifacts.get("audio_path") or "",
+            owner_id=g.user_id,
             metadata=artifacts,
         )
         artifacts["download_url"] = f"/api/generated-outputs/{output_id}/download"
         result["artifacts"] = artifacts
-        db.log_agent(result["selected_agent"], result["intent"], title, result["response"], metadata=artifacts)
+        db.log_agent(result["selected_agent"], result["intent"], title, result["response"], owner_id=g.user_id, metadata=artifacts)
         return jsonify({
             **result,
             "status": "success",
@@ -1448,6 +1586,8 @@ def api_podcast_handler():
 
 
 def api_generated_audio_handler(session_id):
+    if not db.get_document(session_id, g.user_id):
+        return jsonify({"error": "Document not found"}), 404
     return send_from_directory(AUDIO_FOLDER, f"{session_id}.mp3", mimetype="audio/mpeg")
 
 
@@ -1490,7 +1630,7 @@ def api_manage_document(doc_id):
 
 @app.get('/api/documents/<doc_id>/file')
 def api_document_file(doc_id):
-    doc = db.get_document(doc_id)
+    doc = db.get_document(doc_id, g.user_id)
     if not doc:
         return jsonify(error='Document not found'), 404
     path = Path(doc.get('filepath') or doc.get('file_path') or '').resolve()
@@ -1506,7 +1646,7 @@ def api_agent_logs():
         limit_int = max(1, min(int(limit), 500))
     except ValueError:
         limit_int = 100
-    return jsonify({"agent_logs": db.list_agent_logs(limit=limit_int)})
+    return jsonify({"agent_logs": db.list_agent_logs(g.user_id, limit=limit_int)})
 
 
 @app.route("/api/generated-outputs", methods=["GET"])
@@ -1516,12 +1656,12 @@ def api_generated_outputs():
         limit_int = max(1, min(int(limit), 500))
     except ValueError:
         limit_int = 100
-    return jsonify({"generated_outputs": db.list_generated_outputs(limit=limit_int)})
+    return jsonify({"generated_outputs": db.list_generated_outputs(g.user_id, limit=limit_int)})
 
 
 @app.route("/api/generated-outputs/<int:output_id>", methods=["GET"])
 def api_generated_output_detail(output_id):
-    output = db.get_generated_output(output_id)
+    output = db.get_generated_output(output_id, g.user_id)
     if not output:
         return jsonify({"error": "Generated output not found"}), 404
     return jsonify({"generated_output": output})
@@ -1529,7 +1669,7 @@ def api_generated_output_detail(output_id):
 
 @app.route("/api/generated-outputs/<int:output_id>/download", methods=["GET"])
 def api_generated_output_download(output_id):
-    output = db.get_generated_output(output_id)
+    output = db.get_generated_output(output_id, g.user_id)
     if not output:
         return jsonify({"error": "Generated output not found"}), 404
 
@@ -1573,12 +1713,12 @@ def api_jobs():
         limit_int = max(1, min(int(limit), 200))
     except ValueError:
         limit_int = 50
-    return jsonify({"jobs": job_manager.list(limit=limit_int)})
+    return jsonify({"jobs": job_manager.list(owner_id=g.user_id, limit=limit_int)})
 
 
 @app.route("/api/jobs/<job_id>", methods=["GET"])
 def api_job_detail(job_id):
-    job = job_manager.get(job_id)
+    job = job_manager.get(job_id, owner_id=g.user_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
     return jsonify({"job": job})
@@ -1586,7 +1726,7 @@ def api_job_detail(job_id):
 
 @app.route("/api/documents/<doc_id>/export/markdown", methods=["GET"])
 def api_export_document_markdown(doc_id):
-    doc = db.get_document(doc_id)
+    doc = db.get_document(doc_id, g.user_id)
     if not doc:
         return jsonify({"error": "Document not found"}), 404
 
@@ -1599,9 +1739,55 @@ def api_export_document_markdown(doc_id):
         title=Path(file_path).name,
         content=markdown,
         file_path=file_path,
+        owner_id=g.user_id,
         metadata={"source": "document_export", "filename": doc.get("filename", "")},
     )
     response = send_file(file_path, as_attachment=True, download_name=Path(file_path).name, mimetype="text/markdown")
+    response.headers["X-Generated-Output-Id"] = str(output_id)
+    return response
+
+
+@app.route("/api/documents/<doc_id>/export/briefing.pdf", methods=["GET"])
+def api_export_document_briefing_pdf(doc_id):
+    doc = db.get_document(doc_id, g.user_id)
+    if not doc:
+        return jsonify({"error": "Document not found"}), 404
+
+    markdown = build_markdown_report(doc)
+    title = f"Research briefing: {doc.get('filename', 'paper')}"
+    content = (
+        f"# {title}\n\n"
+        "> Generated research briefing. Verify facts against the source paper; "
+        "this report is not a reproduction.\n\n"
+        f"{markdown}"
+    )
+    filename = artifact_filename(
+        "paper_briefing",
+        doc_id,
+        f"{Path(doc.get('filename', 'paper')).stem}_briefing.pdf",
+    )
+    file_path = write_briefing_pdf(
+        GENERATED_MARKDOWN_FOLDER, filename, title, content
+    )
+    output_id = db.save_generated_output(
+        session_id=doc_id,
+        output_type="briefing_pdf",
+        title=Path(file_path).name,
+        content=content,
+        file_path=file_path,
+        owner_id=g.user_id,
+        metadata={
+            "source": "document_briefing",
+            "filename": doc.get("filename", ""),
+            "verification_status": "generated_not_reproduction",
+        },
+    )
+    response = send_file(
+        file_path,
+        as_attachment=True,
+        download_name=Path(file_path).name,
+        mimetype="application/pdf",
+    )
     response.headers["X-Generated-Output-Id"] = str(output_id)
     return response
 
@@ -1617,6 +1803,3 @@ register_research_routes(app, get_active_gemini_engine)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=FlaskConfig.DEBUG)
-
-
-

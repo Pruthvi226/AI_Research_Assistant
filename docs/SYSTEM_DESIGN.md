@@ -184,6 +184,6 @@ Migration order:
 ## 14. Design Tradeoffs
 
 - Flask plus in-process jobs keeps the local project easy to run, but it limits horizontal scaling.
-- Lexical retrieval is robust without downloads, but semantic retrieval is more accurate for paraphrased questions.
+- The default CPU-light BM25 retriever uses bounded research-term expansion and IDF weighting without model downloads. It can match some terminology variants but is not a dense semantic embedding model; paraphrases without shared/expanded terms may still be missed. Dense embeddings remain an explicit, memory-intensive opt-in.
 - SQLite WAL is excellent for a portfolio/demo deployment, but PostgreSQL is better for multi-user production.
 - Optional cloud LLM behavior improves demo resilience, but quality varies between Gemini and local fallback modes.

@@ -35,6 +35,7 @@ class JobManager:
     def submit(self, name: str, fn: Callable[..., Any], *args, **kwargs) -> str:
         job_id = str(uuid.uuid4())
         now = time.time()
+        owner_id = kwargs.get("owner_id")
         with self._lock:
             in_flight = self._count_in_flight_locked()
             if in_flight >= self.max_in_flight:
@@ -44,6 +45,7 @@ class JobManager:
             self._jobs[job_id] = {
                 "id": job_id,
                 "name": name,
+                "user_id": owner_id,
                 "status": "queued",
                 "progress": 0,
                 "message": "Queued",
@@ -96,15 +98,21 @@ class JobManager:
             job["updated_at"] = time.time()
             self._prune_locked()
 
-    def get(self, job_id: str) -> Optional[Dict[str, Any]]:
+    def get(self, job_id: str, owner_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         with self._lock:
             job = self._jobs.get(job_id)
-            return dict(job) if job else None
+            if not job or (owner_id is not None and job.get("user_id") != owner_id):
+                return None
+            return self._public_job(job)
 
-    def list(self, limit: int = 50) -> list:
+    def list(self, limit: int = 50, owner_id: Optional[str] = None) -> list:
         with self._lock:
-            jobs = sorted(self._jobs.values(), key=lambda item: item["created_at"], reverse=True)
-            return [dict(job) for job in jobs[:limit]]
+            jobs = (
+                job for job in self._jobs.values()
+                if owner_id is None or job.get("user_id") == owner_id
+            )
+            sorted_jobs = sorted(jobs, key=lambda item: item["created_at"], reverse=True)
+            return [self._public_job(job) for job in sorted_jobs[:limit]]
 
     def stats(self) -> Dict[str, Any]:
         with self._lock:
@@ -144,3 +152,9 @@ class JobManager:
         removable = len(self._jobs) - self.max_retained_jobs
         for job in terminal_jobs[:removable]:
             self._jobs.pop(job["id"], None)
+
+    @staticmethod
+    def _public_job(job: Dict[str, Any]) -> Dict[str, Any]:
+        public = dict(job)
+        public.pop("user_id", None)
+        return public

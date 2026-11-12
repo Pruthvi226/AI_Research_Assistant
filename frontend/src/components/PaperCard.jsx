@@ -61,6 +61,48 @@ export default function PaperCard({
           Abstract not provided by the publisher. Open the paper for full text.
         </p>
       )}
+      <details className="paper-details">
+        <summary>Paper details</summary>
+        <dl>
+          <div>
+            <dt>Published</dt>
+            <dd>{paper.publishedDate || paper.year || "Date unavailable"}</dd>
+          </div>
+          <div>
+            <dt>Type</dt>
+            <dd>{paper.type || "Publication type unavailable"}</dd>
+          </div>
+          <div>
+            <dt>Publisher</dt>
+            <dd>{paper.publisher || "Publisher unavailable"}</dd>
+          </div>
+          <div>
+            <dt>DOI</dt>
+            <dd>
+              {paper.doi ? (
+                <a href={safeUrl(`https://doi.org/${paper.doi}`)} target="_blank" rel="noreferrer">
+                  {paper.doi}
+                </a>
+              ) : (
+                "Not provided by Crossref"
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt>Metadata source</dt>
+            <dd>{paper.source || "Source unavailable"}</dd>
+          </div>
+        </dl>
+        {safeUrl(paper.pdf) ? (
+          <p className="metadata-note">
+            Publisher PDF link supplied by {paper.source || "the metadata source"}; access may require a subscription.
+          </p>
+        ) : (
+          <p className="metadata-note">
+            No publisher PDF link was supplied. This does not indicate that the work is open access.
+          </p>
+        )}
+      </details>
       <div className="card-footer">
         <span className="citation-count">
           {paper.citations.toLocaleString()} citations

@@ -6,8 +6,10 @@ import argparse
 import ast
 import os
 import pathlib
+import secrets
 import sys
 import unittest
+import uuid
 from typing import Iterable, List
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -51,9 +53,22 @@ def smoke_flask_endpoints() -> None:
         "/api/system/metrics",
     ]
     client = app.test_client()
+    session = client.post(
+        "/api/auth/register",
+        json={
+            "email": f"verify-{uuid.uuid4()}@example.test",
+            "password": secrets.token_urlsafe(24),
+        },
+    )
+    if session.status_code != 201:
+        raise AssertionError(f"/api/auth/register returned {session.status_code}")
+    token = session.get_json()["token"]
     for endpoint in endpoints:
-        response = client.get(endpoint, headers={"X-Request-ID": "verify-backend"})
-        if response.status_code >= 500:
+        headers = {"X-Request-ID": "verify-backend"}
+        if endpoint == "/api/system/metrics":
+            headers["Authorization"] = f"Bearer {token}"
+        response = client.get(endpoint, headers=headers)
+        if response.status_code != 200:
             raise AssertionError(f"{endpoint} returned {response.status_code}")
         request_id = response.headers.get("X-Request-ID")
         if request_id != "verify-backend":

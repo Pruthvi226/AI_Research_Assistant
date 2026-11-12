@@ -9,6 +9,11 @@ test("real PDF upload, local retrieval chat, source links, code and missing-key 
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("./#documents");
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await page.getByRole("button", { name: /Create an account/ }).click();
+  await page.getByLabel("Email").fill(`e2e-${Date.now()}@example.test`);
+  await page.getByLabel("Password").fill("test-only-password-12345");
+  await page.getByRole("button", { name: "Create account", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Upload PDF", exact: true }),
   ).toBeEnabled();

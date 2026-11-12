@@ -7,6 +7,8 @@ const work = {
   author: [{ given: "Ada", family: "Lovelace" }],
   published: { "date-parts": [[2025]] },
   "container-title": ["Science"],
+  type: "journal-article",
+  publisher: "Research Press",
   abstract: "<jats:p>Publisher evidence.</jats:p>",
   "is-referenced-by-count": 12,
 };
@@ -15,6 +17,9 @@ test("normalizes publisher evidence and preserves missing abstract", () => {
   expect(paper.abstract).toBe("Publisher evidence.");
   expect(paper.authors).toEqual(["Ada Lovelace"]);
   expect(paper.year).toBe(2025);
+  expect(paper.publishedDate).toBe("2025");
+  expect(paper.type).toBe("journal-article");
+  expect(paper.publisher).toBe("Research Press");
   expect(normalizeWork({ DOI: "10.1000/a" }).abstract).toBe("");
 });
 test("malformed optional publisher metadata does not break the result list", () => {
@@ -66,6 +71,24 @@ test("encodes filters, author query and pagination in upstream request", async (
   expect(url.searchParams.get("offset")).toBe("12");
   expect(data.total).toBe(42);
   expect(data.papers[0].title).toBe("Real research");
+});
+test("supports a bounded publication date range and publication type", async () => {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({ message: { items: [work] } }),
+  });
+  await discover("retrieval", {
+    fromYear: "2020",
+    untilYear: "2024",
+    type: "journal-article",
+  });
+  const url = new URL(global.fetch.mock.calls[0][0]);
+  expect(url.searchParams.get("filter")).toBe(
+    "from-pub-date:2020-01-01,until-pub-date:2024-12-31,type:journal-article",
+  );
+  await expect(
+    discover("retrieval", { fromYear: "2025", untilYear: "2020" }),
+  ).rejects.toThrow("must not be later");
 });
 test("rejects malformed upstream data and propagates non-success responses", async () => {
   global.fetch = vi

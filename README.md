@@ -4,7 +4,7 @@ A research assistant for discovering academic publications, organizing evidence,
 
 **Live application:** [Open Scientia](https://pruthvi226.github.io/AI_Research_Assistant/). The GitHub Pages frontend is connected to the [free Render backend](https://scientia-research-api.onrender.com), with Gemini configured server-side. Live browser verification passed on 20 October 2026 for source-backed AI research chat, follow-up questions, PDF summaries, document QA and literature reviews from real DOI sources. No page errors occurred.
 
-**Free backend:** Deployed in Singapore using Render's **Free** compute plan without a persistent disk. [Service dashboard](https://dashboard.render.com/web/srv-dbb69tgm7kps73c96rq0). PDFs and backend history are temporary and reset on restarts, redeploys, and idle spin-down. Browser bookmarks and notes remain local. [`render.yaml`](render.yaml) preserves the free configuration for future Blueprint use. Gemini uses `gemini-3.5-flash-lite`; its API key remains only in the backend environment.
+**Free backend:** The existing Render **Free** service has no persistent disk. [Service dashboard](https://dashboard.render.com/web/srv-dbb69tgm7kps73c96rq0). Account, PDF, chat, generated-file, and job data can reset on restarts, redeploys, and idle spin-down. Treat this as a demo only; do not upload sensitive or irreplaceable files. [`render.yaml`](render.yaml) remains a free/demo configuration. Provider credentials remain server-side.
 
 ![Scientia desktop workspace](docs/screenshots/desktop.png)
 
@@ -32,11 +32,11 @@ AI analysis, local extraction/templates, and metadata output are labeled separat
 
 ## Stack and architecture
 
-- React 18, Vite, Lucide icons, custom responsive CSS, light/dark themes.
+- React 18, Vite, Lucide icons, custom responsive CSS, light/dark themes; email/password signup, sign-in, and tab-scoped sessions.
 - Lazy-loaded React Markdown and GFM tables; raw HTML is not executed and unsafe links are rejected.
-- Flask, Flask-CORS, Waitress, SQLite WAL, PyMuPDF; optional OCR and audio services.
+- Flask, Flask-CORS, Waitress, SQLite WAL, per-user ownership filters, PyMuPDF; optional OCR and audio services.
 - Gemini REST API with server-side keys, bounded requests, explicit provider errors, and existing extractive fallback.
-- Lexical retrieval by default; optional FAISS/sentence-transformers remains available.
+- CPU-light hybrid BM25 retrieval with bounded research-term expansion by default; dense FAISS/sentence-transformer embeddings are opt-in and not enabled on Render Free.
 - Vitest, ESLint, Playwright, axe, Python unittest, GitHub Actions, Docker, Render Blueprint.
 
 ```mermaid
@@ -51,7 +51,9 @@ flowchart LR
     PDF --> Storage[SQLite and persistent files]
 ```
 
-The backend is a **shared portfolio workspace**, not a private multi-tenant service. Upload public papers only. Authentication, user ownership, and authorization across all document/job/artifact endpoints are future requirements for confidential or multi-user production use. Admin routes are protected separately.
+All application data endpoints require an authenticated account. Documents, chat history, jobs, generated outputs, and logs are filtered by owner in the persistence layer. Existing database records without an owner stay inaccessible rather than being assigned to the first account. Passwords are hashed and bearer sessions expire after seven days. The native account flow does not yet include email verification, password reset, MFA, or account recovery; add those controls or an approved identity provider before production identity use.
+
+The current Render free service still uses ephemeral SQLite/files and in-memory jobs. Authentication does not make ephemeral storage durable; see [PRODUCTION.md](PRODUCTION.md) for the approved release prerequisites and GitHub Pages + Render configuration.
 
 ## Local development
 
@@ -97,14 +99,14 @@ npm run preview
 | `GITHUB_TOKEN` | Backend, optional | Higher GitHub metadata quota |
 | `OPENALEX_API_KEY` | Backend, optional | Authenticated OpenAlex reference enrichment |
 | `SECRET_KEY` | Backend | Strong random production secret |
-| `ADMIN_API_KEY` | Backend | Protect administrative routes; never embed it in a frontend build |
-| `REQUIRE_ADMIN_AUTH` | Backend | `true` in public hosting; local example uses `false` |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | Backend | Signup/sign-in attempts allowed per IP per minute |
+| `AUTH_SESSION_TTL_SECONDS` | Backend | Bearer-session lifetime; default is seven days |
 | `CORS_ORIGINS` | Backend | Exact comma-separated frontend origins, e.g. `https://pruthvi226.github.io` |
 | `REACT_APP_API_URL` | Frontend build / GitHub repository variable | Public HTTPS backend origin, no trailing API path; blank builds discovery mode |
 | `PUBLIC_URL` | Frontend build | Repository base path, set automatically by the Pages workflow |
 | `DATA_FOLDER` and storage paths | Backend | Put database, uploads, indices and generated files on persistent storage |
 
-See [`.env.example`](.env.example) and [`frontend/.env.example`](frontend/.env.example). Only the public API origin is embedded by Vite. Production builds never include admin/provider keys. A same-origin Nginx deployment uses `REACT_APP_API_URL=/`; this is distinct from a standalone Pages build.
+See [`.env.example`](.env.example) and [`frontend/.env.example`](frontend/.env.example). Only the public API origin is embedded by Vite. Provider credentials remain on the backend. A same-origin Nginx deployment uses `REACT_APP_API_URL=/`; this is distinct from a standalone Pages build.
 
 ## Testing
 
@@ -141,11 +143,10 @@ Backend integration tests generate an actual PDF and exercise upload, extraction
 The published source is [Pruthvi226/AI_Research_Assistant](https://github.com/Pruthvi226/AI_Research_Assistant). The tested workspace changes and the pre-existing remote notebook update are both preserved on `main`.
 
 1. Renew GitHub CLI authentication with `gh auth login` in your terminal. Do not paste a token into chat.
-2. Review changes, commit the intended source files, and push to `main` or `master`. Preserve any unrelated work already in your checkout.
-3. In repository **Settings → Pages**, set **Source → GitHub Actions**.
-4. Optionally set **Settings → Secrets and variables → Actions → Variables → `REACT_APP_API_URL`** to the backend HTTPS origin. It is a public configuration value, not a secret. Leave blank for discovery mode.
-5. Run the **Deploy GitHub Pages** workflow. It lints, tests, builds with Pages' actual base path, uploads the static artifact, and deploys using GitHub's official Pages actions.
-6. Verify the workflow's returned URL, every navigation tab, an actual Crossref search, and, when connected, PDF upload and chat. Refresh `#library` directly to check routing.
+2. Before release, review the authentication and persistence prerequisites in [PRODUCTION.md](PRODUCTION.md). Do not publish this working tree without an explicit release approval.
+3. Configure **Settings → Pages → Source → GitHub Actions** when deployment is authorized.
+4. Configure the non-secret Actions variable `REACT_APP_API_URL` to the approved HTTPS backend origin. Leave blank for discovery-only builds.
+5. After release approval, run the **Deploy GitHub Pages** workflow and verify the resulting deployment. No workflow was run for this change.
 
 The verified live URL is `https://pruthvi226.github.io/AI_Research_Assistant/`. [Successful Pages deployment](https://github.com/Pruthvi226/AI_Research_Assistant/actions/runs/39264404488). Hash navigation avoids Pages server-rewrite requirements. All build assets and the favicon respect the configured repository path.
 
@@ -157,7 +158,7 @@ Workflow: [`.github/workflows/pages.yml`](.github/workflows/pages.yml). General 
 
 1. Push the reviewed source to GitHub, then create a Blueprint from that repository in your chosen Render workspace.
 2. Select the Free compute plan. Do not attach a disk or upgrade to a paid plan for this configuration.
-3. Set `GEMINI_API_KEY` through Render's secret environment UI. `SECRET_KEY` and `ADMIN_API_KEY` are generated; keep them server-side. Optional provider credentials can be added there too.
+3. Set `GEMINI_API_KEY` through Render's secret environment UI only when approved. Keep provider credentials server-side.
 4. Set `CORS_ORIGINS` to the exact Pages origin (no repository path). Existing Blueprint configuration uses `https://pruthvi226.github.io`.
 5. Deploy and verify `/api/system/readiness` returns HTTP 200. Set the resulting HTTPS service URL as the GitHub `REACT_APP_API_URL` repository variable, then rerun Pages deployment.
 6. Verify error handling, upload polling and source links. Verify cloud-backed generation after setting a Gemini key. Expect backend data to reset on restarts; download reports you want to keep.
@@ -188,14 +189,14 @@ docs/screenshots/                    Captured desktop and mobile UI
 
 ## Limits and next improvements
 
-- The frontend and free backend are published and Gemini generation is verified. Backend storage is temporary on the free plan; Gemini usage remains subject to the provider's project quotas.
+- The frontend and backend were previously published. This change was not deployed. Backend storage remains temporary on the free plan; Gemini usage remains subject to provider quotas.
 - Gemini is optional for local extraction but required for genuine generative chat/reviews; model/provider failures are shown or labeled as local fallback.
 - Crossref coverage depends on publisher deposits. Abstracts, citation counts, and PDF links may be absent; linked full text may be paywalled. Citation formats are drafts to verify before publication.
 - Literature reviews use available abstracts, not retrieved full text. Missing methodologies, datasets, metrics, and findings must remain explicitly unreported. Proposed research gaps are hypotheses.
-- PDF upload currently supports text PDFs up to 20 MB. Scanned/encrypted/unextractable PDFs produce errors; there is no OCR PDF pipeline. Image OCR requires Tesseract for the existing equation API.
-- The browser holds one general conversation, with bounded turns and local export. Document history is persisted by backend workspace. There is no account sync, session archive UI, or private tenant isolation.
-- Local code is a generic scaffold, not a reproduction of the paper. Local equation output is a template, not a verified derivation. Review all generated code before running it.
+- PDF upload supports text PDFs up to 20 MB and attempts Tesseract OCR on image-based pages when the runtime includes Tesseract; OCR is capped at 12 pages per document on the default configuration. Encrypted or unreadable files return an error, and OCR output, table/layout extraction, and equation detection require manual verification.
+- The browser holds one general conversation, with bounded turns and local export. Document history is scoped by account on the backend. Browser-local research data is cleared on sign-out.
+- Generated project bundles include model, dataset, training/evaluation scripts, configuration, dependencies, and source pointers; they are syntax-checked scaffolds, not verified reproductions. Local equation output is a context-aware template, not a verified derivation. Review all generated code before running it.
 - Audio remains available through the existing API; the UI exposes scripts. Audio generation depends on external TTS and is not live-verified here.
-- For private or larger production use: add user authentication and ownership checks, a durable queue, PostgreSQL, object storage, shared rate limiting, retention policies, and telemetry before scaling out.
+- Before private production use: configure durable database and file storage, a restart-safe queue, account verification/recovery or an approved identity provider, backups, shared rate limiting, retention policies, and telemetry.
 
 See the [implementation report](docs/IMPLEMENTATION_REPORT.md), [API contract](docs/API_CONTRACT.md), and [system design](docs/SYSTEM_DESIGN.md).

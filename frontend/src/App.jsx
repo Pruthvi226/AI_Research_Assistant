@@ -33,10 +33,14 @@ import {
 } from "lucide-react";
 import api, {
   API_BASE,
+  authenticate,
   backendConfigured,
+  clearAuthToken,
   errorMessage,
+  getAuthToken,
   getHistory,
   healthCheck,
+  signOut,
   uploadPaper,
 } from "./api";
 import { citation, discover, download, readLocal, safeUrl } from "./research";
@@ -99,6 +103,84 @@ function TextOutput({ value }) {
   );
 }
 
+function AuthScreen({ mode, setMode, onSubmit, busy, error }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  return (
+    <main className="auth-page">
+      <form
+        className="auth-card"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit(email, password);
+        }}
+      >
+        <span className="brand-icon auth-icon">
+          <FlaskConical size={21} />
+        </span>
+        <p className="eyebrow">PRIVATE RESEARCH WORKSPACE</p>
+        <h1>{mode === "register" ? "Create your account" : "Welcome back"}</h1>
+        <p className="auth-description">
+          Your papers, conversations, and generated files are available only
+          after you sign in.
+        </p>
+        <label htmlFor="auth-email">Email</label>
+        <input
+          id="auth-email"
+          type="email"
+          autoComplete="email"
+          maxLength={254}
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <label htmlFor="auth-password">Password</label>
+        <input
+          id="auth-password"
+          type="password"
+          autoComplete={
+            mode === "register" ? "new-password" : "current-password"
+          }
+          minLength={12}
+          maxLength={128}
+          required
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+        {mode === "register" && (
+          <small className="auth-hint">Use at least 12 characters.</small>
+        )}
+        {error && (
+          <p className="auth-error" role="alert">
+            {error}
+          </p>
+        )}
+        <button className="auth-submit" type="submit" disabled={busy}>
+          {busy
+            ? "Please wait…"
+            : mode === "register"
+              ? "Create account"
+              : "Sign in"}
+        </button>
+        <button
+          className="auth-switch"
+          type="button"
+          onClick={() =>
+            setMode(mode === "register" ? "login" : "register")
+          }
+        >
+          {mode === "register"
+            ? "Already have an account? Sign in"
+            : "New to Scientia? Create an account"}
+        </button>
+        <p className="auth-footnote">
+          Sessions are kept in this browser tab and expire after seven days.
+        </p>
+      </form>
+    </main>
+  );
+}
+
 export default function App() {
   const [tab, setTab] = useState(initialTab);
   const [collapsed, setCollapsed] = useLocal("scientia.sidebar", false);
@@ -113,6 +195,8 @@ export default function App() {
   const [results, setResults] = useState([]);
   const [total, setTotal] = useState(0);
   const [year, setYear] = useState("");
+  const [untilYear, setUntilYear] = useState("");
+  const [paperType, setPaperType] = useState("");
   const [field, setField] = useState("all");
   const [sort, setSort] = useState("relevance");
   const [page, setPage] = useState(1);
@@ -120,6 +204,11 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
   const [documents, setDocuments] = useState([]);
   const [active, setActive] = useState(null);
   const [docMessages, setDocMessages] = useState([]);
@@ -154,8 +243,13 @@ export default function App() {
       });
   }, [messages, docMessages, tab]);
   const connect = useCallback(async () => {
-    if (!backendConfigured) return;
+    if (!backendConfigured || !getAuthToken()) {
+      setAuthReady(true);
+      return;
+    }
     try {
+      const identity = await api.get("/api/auth/me");
+      setUser(identity.data.user);
       setStatus(await healthCheck());
       const listed = (await api.get("/api/documents")).data.documents;
       if (!Array.isArray(listed))
@@ -163,10 +257,36 @@ export default function App() {
       setDocuments(
         listed.map((doc) => ({ ...doc, session_id: doc.session_id || doc.id })),
       );
-    } catch {
-      setStatus({ offline: true });
+    } catch (e) {
+      if (e.response?.status === 401) {
+        clearAuthToken();
+        setUser(null);
+        setDocuments([]);
+      } else {
+        setStatus({ offline: true });
+      }
+    } finally {
+      setAuthReady(true);
     }
   }, []);
+  const clearLocalWorkspace = useCallback(() => {
+    setMessages([]);
+    setBookmarks([]);
+    setNotes({});
+    setHistory([]);
+    [
+      "scientia.conversation",
+      "scientia.bookmarks",
+      "scientia.notes",
+      "scientia.history",
+    ].forEach((key) => {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Local workspace storage may be disabled.
+      }
+    });
+  }, [setBookmarks, setHistory, setMessages, setNotes]);
   useEffect(() => {
     connect();
     return () => {
@@ -174,6 +294,43 @@ export default function App() {
       uploadController.current?.abort();
     };
   }, [connect]);
+  useEffect(() => {
+    const expire = () => {
+      clearLocalWorkspace();
+      setUser(null);
+      setDocuments([]);
+      setActive(null);
+      setDocMessages([]);
+    };
+    window.addEventListener("scientia:unauthorized", expire);
+    return () => window.removeEventListener("scientia:unauthorized", expire);
+  }, [clearLocalWorkspace]);
+  async function submitAuth(email, password) {
+    setAuthBusy(true);
+    setAuthError("");
+    try {
+      await authenticate(email, password, authMode === "register");
+      await connect();
+    } catch (e) {
+      setAuthError(errorMessage(e));
+      clearAuthToken();
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+  async function logout() {
+    try {
+      await signOut();
+    } catch {
+      clearAuthToken();
+    } finally {
+      setUser(null);
+      setDocuments([]);
+      setActive(null);
+      setDocMessages([]);
+      clearLocalWorkspace();
+    }
+  }
   function navigate(next) {
     window.location.hash = next;
     setTab(next);
@@ -212,6 +369,9 @@ export default function App() {
     try {
       const data = await discover(trimmed, {
         year,
+        fromYear: year,
+        untilYear,
+        type: paperType,
         sort,
         field,
         page: nextPage,
@@ -401,6 +561,33 @@ export default function App() {
   );
   const chatMessages = active ? docMessages : messages;
 
+  if (!authReady) {
+    return (
+      <main className="auth-page">
+        <p role="status">Checking your session…</p>
+      </main>
+    );
+  }
+  if (!user) {
+    return (
+      <AuthScreen
+        mode={authMode}
+        setMode={(next) => {
+          setAuthMode(next);
+          setAuthError("");
+        }}
+        onSubmit={submitAuth}
+        busy={authBusy}
+        error={
+          authError ||
+          (!backendConfigured
+            ? "Connect the backend to create an account or sign in."
+            : "")
+        }
+      />
+    );
+  }
+
   return (
     <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
       <a
@@ -496,11 +683,14 @@ export default function App() {
             <span>Settings & connection</span>
           </button>
           <div className="profile">
-            <span className="avatar">R</span>
+            <span className="avatar">{user.email.slice(0, 1).toUpperCase()}</span>
             <div>
-              <strong>Research workspace</strong>
-              <small>Personal · stored on this device</small>
+              <strong>{user.email}</strong>
+              <small>Private account</small>
             </div>
+            <button className="sign-out-button" onClick={logout}>
+              Sign out
+            </button>
             <button
               className="icon-button collapse-toggle"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
@@ -683,21 +873,59 @@ export default function App() {
                       </select>
                     </label>
                     <label>
-                      Published
+                      From year
                       <select
-                        aria-label="Published"
+                        aria-label="From year"
                         value={year}
                         onChange={(e) => {
                           setYear(e.target.value);
-                          search(searched, 1, { year: e.target.value });
+                          search(searched, 1, {
+                            fromYear: e.target.value,
+                            year: e.target.value,
+                          });
                         }}
                       >
                         <option value="">Any time</option>
-                        {[2026, 2025, 2024, 2020, 2015].map((y) => (
+                        {[2026, 2025, 2024, 2020, 2015, 2010].map((y) => (
                           <option key={y} value={y}>
-                            Since {y}
+                            {y}
                           </option>
                         ))}
+                      </select>
+                    </label>
+                    <label>
+                      To year
+                      <select
+                        aria-label="To year"
+                        value={untilYear}
+                        onChange={(e) => {
+                          setUntilYear(e.target.value);
+                          search(searched, 1, { untilYear: e.target.value });
+                        }}
+                      >
+                        <option value="">No end date</option>
+                        {[2026, 2025, 2024, 2020, 2015, 2010].map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Publication type
+                      <select
+                        aria-label="Publication type"
+                        value={paperType}
+                        onChange={(e) => {
+                          setPaperType(e.target.value);
+                          search(searched, 1, { type: e.target.value });
+                        }}
+                      >
+                        <option value="">All types</option>
+                        <option value="journal-article">Journal article</option>
+                        <option value="proceedings-article">Proceedings</option>
+                        <option value="posted-content">Preprint</option>
+                        <option value="book-chapter">Book chapter</option>
                       </select>
                     </label>
                     <label>
@@ -1219,17 +1447,38 @@ export default function App() {
                 <article className="output-card">
                   <div className="section-heading">
                     <h2>{active.filename}</h2>
-                    <button
-                      className="secondary-button"
-                      onClick={() =>
-                        download(
-                          "paper-analysis.md",
-                          `# ${active.filename}\n\n${active.summary?.abstract || ""}\n\n${JSON.stringify(active.agent_analysis || active.summary?.sections || {}, null, 2)}`,
-                        )
-                      }
-                    >
-                      <ArrowDownToLine size={16} /> Report
-                    </button>
+                    <div className="toolbar">
+                      <button
+                        className="secondary-button"
+                        onClick={() =>
+                          download(
+                            "paper-analysis.md",
+                            `# ${active.filename}\n\n${active.summary?.abstract || ""}\n\n${JSON.stringify(active.agent_analysis || active.summary?.sections || {}, null, 2)}`,
+                          )
+                        }
+                      >
+                        <ArrowDownToLine size={16} /> Report
+                      </button>
+                      <button
+                        className="secondary-button"
+                        disabled={busy}
+                        onClick={() =>
+                          run(async () => {
+                            const response = await api.get(
+                              `/api/documents/${encodeURIComponent(active.session_id)}/export/briefing.pdf`,
+                              { responseType: "blob" },
+                            );
+                            download(
+                              `${active.filename.replace(/\.pdf$/i, "")}_briefing.pdf`,
+                              response.data,
+                              "application/pdf",
+                            );
+                          })
+                        }
+                      >
+                        <ArrowDownToLine size={16} /> Briefing PDF
+                      </button>
+                    </div>
                   </div>
                   <span className="eyebrow">
                     {active.performance?.mode?.includes("gemini")
@@ -1247,6 +1496,53 @@ export default function App() {
                       <TextOutput value={value} />
                     </details>
                   ))}
+                  {(active.summary?.equations || []).length > 0 && (
+                    <section className="equation-list">
+                      <h3>Equations detected in extracted text</h3>
+                      <p className="metadata-note">
+                        Text-based candidates only. Scanned math and visual
+                        notation may be missed; verify each expression on its
+                        cited page.
+                      </p>
+                      {active.summary.equations.map((equation, index) => (
+                        <article className="equation-card" key={`${equation.page}-${index}`}>
+                          <TextOutput
+                            value={`$$\n${equation.latex || equation.text}\n$$`}
+                          />
+                          <p>
+                            Page {equation.page} · {equation.extraction_method} ·
+                            unverified
+                          </p>
+                          {equation.context && (
+                            <details>
+                              <summary>Surrounding paper text</summary>
+                              <p>{equation.context}</p>
+                            </details>
+                          )}
+                          <button
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() =>
+                              run(async () => {
+                                setToolOutput(
+                                  (
+                                    await api.post("/api/equation", {
+                                      equation: equation.text,
+                                      context: equation.context || "",
+                                      page: equation.page,
+                                      filename: active.filename,
+                                    })
+                                  ).data,
+                                );
+                              })
+                            }
+                          >
+                            Explain using paper context
+                          </button>
+                        </article>
+                      ))}
+                    </section>
+                  )}
                   <div className="toolbar">
                     <button
                       className="primary-button"
@@ -1290,22 +1586,94 @@ export default function App() {
                       Briefing script
                     </button>
                   </div>
-                  {toolOutput && (
-                    <TextOutput
-                      value={
-                        toolOutput.script ||
-                        toolOutput.response ||
-                        toolOutput.artifacts ||
-                        toolOutput
-                      }
-                    />
-                  )}
+                  {toolOutput?.artifacts?.citations ? (
+                    <section className="citation-exploration">
+                      <TextOutput value={toolOutput.response} />
+                      <h3>Citation graph</h3>
+                      <p className="metadata-note">
+                        Edges come from extracted bibliography entries. Metadata
+                        matches and recommendations are candidates, not verified
+                        relationships.
+                      </p>
+                      <ol>
+                        {toolOutput.artifacts.citations.map((item) => {
+                          const candidate = item.scholarly || {};
+                          const candidateUrl = safeUrl(candidate.url);
+                          return (
+                            <li key={item.ref_num}>
+                              <strong>
+                                {active.filename} cites [{item.ref_num}]
+                              </strong>
+                              {" — "}
+                              {candidateUrl ? (
+                                <a href={candidateUrl} target="_blank" rel="noreferrer">
+                                  {candidate.title}
+                                  <ArrowUpRight size={13} />
+                                </a>
+                              ) : (
+                                <span>{item.raw_text}</span>
+                              )}
+                              <small>
+                                {item.resolution_status} · unverified
+                                {item.source_page
+                                  ? ` · bibliography on page ${item.source_page}`
+                                  : ""}
+                                {item.match_score != null
+                                  ? ` · title match ${Math.round(item.match_score * 100)}%`
+                                  : ""}
+                              </small>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                      {(toolOutput.artifacts.recommendations || []).length > 0 && (
+                        <>
+                          <h3>Related-work candidates</h3>
+                          <ul>
+                            {toolOutput.artifacts.recommendations.map((paper) => (
+                              <li key={paper.url || paper.title}>
+                                <a href={safeUrl(paper.url)} target="_blank" rel="noreferrer">
+                                  {paper.title}
+                                  <ArrowUpRight size={13} />
+                                </a>
+                                {paper.year ? ` · ${paper.year}` : ""}
+                                <small>
+                                  {paper.provenance} · not verified as a recommendation
+                                </small>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
+                      )}
+                    </section>
+                  ) : toolOutput ? (
+                    <section className="output-card">
+                      <TextOutput
+                        value={
+                          toolOutput.script ||
+                          toolOutput.response ||
+                          toolOutput.artifacts ||
+                          toolOutput
+                        }
+                      />
+                      {toolOutput.artifacts?.source && (
+                        <p className="metadata-note">
+                          Source: {toolOutput.artifacts.source.filename || "paper"}
+                          {toolOutput.artifacts.source.page
+                            ? `, page ${toolOutput.artifacts.source.page}`
+                            : ""}{" "}
+                          · interpretation unverified
+                        </p>
+                      )}
+                    </section>
+                  ) : null}
                 </article>
               ) : (
                 <Empty icon={FileText} title="Every paper has a story">
                   Upload a research PDF or choose a previously uploaded paper to
-                  read its analysis. Use public papers in a shared demo
-                  workspace.
+                  read its analysis. Documents are private to your account, but
+                  this deployment has ephemeral storage; avoid irreplaceable
+                  files.
                 </Empty>
               )}
             </div>
@@ -1404,16 +1772,21 @@ export default function App() {
                       </details>
                     )}
                     {m.artifacts?.repositories?.map((repo) => (
-                      <a
-                        className="text-button"
-                        key={repo.html_url}
-                        href={safeUrl(repo.html_url)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {repo.full_name}
-                        <ArrowUpRight size={13} />
-                      </a>
+                      <div className="repository-candidate" key={repo.html_url}>
+                        <a
+                          className="text-button"
+                          href={safeUrl(repo.html_url)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {repo.full_name}
+                          <ArrowUpRight size={13} />
+                        </a>
+                        <span className="relationship-badge">
+                          {repo.relationship_status || "unverified"}
+                        </span>
+                        <small>{repo.match_evidence}</small>
+                      </div>
                     ))}
                     {m.artifacts?.code && (
                       <details>
@@ -1431,6 +1804,27 @@ export default function App() {
                         >
                           Download code
                         </button>
+                        {m.artifacts.download_url && (
+                          <button
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() =>
+                              run(async () => {
+                                const response = await api.get(
+                                  m.artifacts.download_url,
+                                  { responseType: "blob" },
+                                );
+                                download(
+                                  "research-scaffold.zip",
+                                  response.data,
+                                  "application/zip",
+                                );
+                              })
+                            }
+                          >
+                            <ArrowDownToLine size={15} /> Download project bundle
+                          </button>
+                        )}
                       </details>
                     )}
                   </article>
@@ -1552,16 +1946,16 @@ export default function App() {
                 <h2>Your data</h2>
                 <p>
                   Bookmarks, notes, searches, theme, and general conversations
-                  are stored in this browser. Uploaded PDFs and document chats
-                  live on the backend. The current backend is a shared research
-                  demo, so use public documents only.
+                  are stored in this browser. Uploaded PDFs, document chats,
+                  processing jobs, and generated files are scoped to your
+                  signed-in account on the backend.
                 </p>
                 {status?.storage_mode === "ephemeral" && (
                   <p>
-                    Free hosting uses temporary storage: uploaded PDFs and
-                    document chats can disappear when the server sleeps or
-                    restarts. Browser bookmarks and notes are separate and
-                    remain on this device.
+                    This backend reports ephemeral storage: uploaded PDFs,
+                    chats, and jobs can disappear when it restarts. Do not use
+                    it for irreplaceable or sensitive research until durable
+                    storage and backups are configured.
                   </p>
                 )}
                 <div className="toolbar">

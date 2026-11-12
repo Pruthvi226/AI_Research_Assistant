@@ -29,7 +29,7 @@ Scientia.ai is a multi-agent research assistant that ingests papers, builds a re
 | Flask API | Simple and reliable for demo speed; can migrate to FastAPI or split services later. |
 | SQLite WAL | Great local durability with minimal setup; PostgreSQL is the next step for multi-user scale. |
 | In-process jobs | Low operational burden; production migration path is Redis/Celery or managed queues. |
-| Lexical retrieval default | Works without model downloads; semantic FAISS can be enabled for higher recall. |
+| Hybrid BM25 default | Works without model downloads and adds bounded terminology expansion; dense FAISS remains an opt-in for deployments with adequate memory. |
 | Gemini optional | Better answer quality when configured; local fallback keeps the app demoable without keys. |
 
 ## Quality Gates

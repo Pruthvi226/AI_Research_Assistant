@@ -30,6 +30,7 @@ class DBManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS documents (
                     id TEXT PRIMARY KEY,
+                    user_id TEXT,
                     filename TEXT NOT NULL,
                     filepath TEXT NOT NULL,
                     text_cache TEXT,
@@ -61,6 +62,7 @@ class DBManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS chat_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
                     session_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
@@ -84,6 +86,7 @@ class DBManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS chats (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
                     session_id TEXT,
                     user_query TEXT NOT NULL,
                     selected_agent TEXT NOT NULL,
@@ -97,6 +100,7 @@ class DBManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS agent_logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
                     selected_agent TEXT NOT NULL,
                     intent TEXT,
                     query TEXT,
@@ -110,6 +114,7 @@ class DBManager:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS generated_outputs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
                     session_id TEXT,
                     output_type TEXT NOT NULL,
                     title TEXT,
@@ -127,15 +132,99 @@ class DBManager:
                     value TEXT NOT NULL
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS auth_sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """)
+            for table in ("documents", "chat_history", "chats", "agent_logs", "generated_outputs"):
+                columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+                if "user_id" not in columns:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_session ON chat_history(session_id, id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_history_owner ON chat_history(user_id, session_id, id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_owner ON documents(user_id, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_document ON chunks(document_id, chunk_index)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_session ON chats(session_id, id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_chats_owner ON chats(user_id, session_id, id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_created_at ON agent_logs(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_logs_owner ON agent_logs(user_id, id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_generated_outputs_session ON generated_outputs(session_id, id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_generated_outputs_owner ON generated_outputs(user_id, id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, expires_at)")
             columns = {row[1] for row in conn.execute('PRAGMA table_info(documents)')}
             if 'analysis_meta' not in columns:
                 conn.execute("ALTER TABLE documents ADD COLUMN analysis_meta TEXT DEFAULT '{}'")
+            conn.commit()
+
+    def create_user(self, user_id: str, email: str, password_hash: str) -> bool:
+        with self.get_connection() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)",
+                    (user_id, email, password_hash),
+                )
+                conn.commit()
+                return True
+            except sqlite3.IntegrityError:
+                return False
+
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, email, password_hash FROM users WHERE email = ?",
+                (email,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                "SELECT id, email, created_at FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def save_auth_session(self, token_hash: str, user_id: str, expires_at: int) -> None:
+        with self.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO auth_sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+                (token_hash, user_id, expires_at),
+            )
+            conn.commit()
+
+    def get_session_user(self, token_hash: str, now: int) -> Optional[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT users.id, users.email, users.created_at
+                FROM auth_sessions
+                JOIN users ON users.id = auth_sessions.user_id
+                WHERE auth_sessions.token_hash = ? AND auth_sessions.expires_at > ?
+                """,
+                (token_hash, now),
+            ).fetchone()
+            if not row:
+                conn.execute("DELETE FROM auth_sessions WHERE token_hash = ?", (token_hash,))
+                conn.commit()
+            return dict(row) if row else None
+
+    def revoke_auth_session(self, token_hash: str) -> None:
+        with self.get_connection() as conn:
+            conn.execute("DELETE FROM auth_sessions WHERE token_hash = ?", (token_hash,))
             conn.commit()
 
     # Document APIs
@@ -145,6 +234,7 @@ class DBManager:
         filename: str,
         filepath: str,
         data: Dict[str, Any],
+        owner_id: str,
         full_text: str = "",
         chunks: Optional[List[str]] = None,
         chunk_records: Optional[List[Dict[str, Any]]] = None,
@@ -156,13 +246,14 @@ class DBManager:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO documents (
-                    id, filename, filepath, text_cache, chunks, summary, key_contributions,
+                    id, user_id, filename, filepath, text_cache, chunks, summary, key_contributions,
                     limitations, future_research, research_gaps,
                     suggested_titles, important_sentences, "references"
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     doc_id,
+                    owner_id,
                     filename,
                     filepath,
                     full_text,
@@ -204,6 +295,7 @@ class DBManager:
     def update_document_cache(
         self,
         doc_id: str,
+        owner_id: str,
         full_text: str,
         chunks: List[str],
         chunk_records: Optional[List[Dict[str, Any]]] = None,
@@ -213,9 +305,11 @@ class DBManager:
         ]
         with self.get_connection() as conn:
             conn.execute(
-                "UPDATE documents SET text_cache = ?, chunks = ? WHERE id = ?",
-                (full_text, json.dumps(chunks), doc_id),
+                "UPDATE documents SET text_cache = ?, chunks = ? WHERE id = ? AND user_id = ?",
+                (full_text, json.dumps(chunks), doc_id, owner_id),
             )
+            if conn.total_changes == 0:
+                raise KeyError("Document not found.")
             conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
             for index, record in enumerate(chunk_records):
                 chunk = record.get("content", "")
@@ -228,9 +322,12 @@ class DBManager:
                 )
             conn.commit()
 
-    def get_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+    def get_document(self, doc_id: str, owner_id: str) -> Optional[Dict[str, Any]]:
         with self.get_connection() as conn:
-            row = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM documents WHERE id = ? AND user_id = ?",
+                (doc_id, owner_id),
+            ).fetchone()
             if not row:
                 return None
             return {
@@ -248,11 +345,11 @@ class DBManager:
                 **json.loads(row['analysis_meta'] or '{}'),
             }
 
-    def get_document_content(self, doc_id: str) -> Optional[Dict[str, Any]]:
+    def get_document_content(self, doc_id: str, owner_id: str) -> Optional[Dict[str, Any]]:
         with self.get_connection() as conn:
             row = conn.execute(
-                "SELECT filepath, text_cache, chunks FROM documents WHERE id = ?",
-                (doc_id,),
+                "SELECT filepath, text_cache, chunks FROM documents WHERE id = ? AND user_id = ?",
+                (doc_id, owner_id),
             ).fetchone()
             if not row:
                 return None
@@ -262,7 +359,7 @@ class DBManager:
                     chunks = json.loads(row["chunks"])
                 except json.JSONDecodeError:
                     chunks = []
-            chunk_records = self.get_chunks_for_document(doc_id)
+            chunk_records = self.get_chunks_for_document(doc_id, owner_id)
             return {
                 "filepath": row["filepath"],
                 "text_cache": row["text_cache"] or "",
@@ -270,16 +367,18 @@ class DBManager:
                 "chunk_records": chunk_records,
             }
 
-    def get_chunks_for_document(self, doc_id: str) -> List[Dict[str, Any]]:
+    def get_chunks_for_document(self, doc_id: str, owner_id: str) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT chunk_index, content, metadata
                 FROM chunks
-                WHERE document_id = ?
+                WHERE document_id = ? AND EXISTS (
+                    SELECT 1 FROM documents d WHERE d.id = chunks.document_id AND d.user_id = ?
+                )
                 ORDER BY chunk_index ASC
                 """,
-                (doc_id,),
+                (doc_id, owner_id),
             ).fetchall()
             records = []
             for row in rows:
@@ -294,15 +393,16 @@ class DBManager:
                 })
             return records
 
-    def list_documents(self) -> List[Dict[str, Any]]:
+    def list_documents(self, owner_id: str) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             rows = conn.execute("""
                 SELECT d.id, d.filename, d.created_at, COUNT(c.id) AS chunk_count
                 FROM documents d
                 LEFT JOIN chunks c ON c.document_id = d.id
+                WHERE d.user_id = ?
                 GROUP BY d.id, d.filename, d.created_at
                 ORDER BY d.created_at DESC
-            """).fetchall()
+            """, (owner_id,)).fetchall()
             return [
                 {
                     "id": r["id"],
@@ -313,36 +413,42 @@ class DBManager:
                 for r in rows
             ]
 
-    def delete_document(self, doc_id: str) -> None:
+    def delete_document(self, doc_id: str, owner_id: str) -> bool:
         with self.get_connection() as conn:
             # Get filepath to delete file
-            row = conn.execute("SELECT filepath FROM documents WHERE id = ?", (doc_id,)).fetchone()
+            row = conn.execute(
+                "SELECT filepath FROM documents WHERE id = ? AND user_id = ?",
+                (doc_id, owner_id),
+            ).fetchone()
+            if not row:
+                return False
             if row and os.path.exists(row["filepath"]):
                 try:
                     os.remove(row["filepath"])
                 except Exception:
                     pass
-            conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+            conn.execute("DELETE FROM documents WHERE id = ? AND user_id = ?", (doc_id, owner_id))
             conn.execute("DELETE FROM chunks WHERE document_id = ?", (doc_id,))
-            conn.execute("DELETE FROM chat_history WHERE session_id = ?", (doc_id,))
-            conn.execute("DELETE FROM chats WHERE session_id = ?", (doc_id,))
-            conn.execute("DELETE FROM generated_outputs WHERE session_id = ?", (doc_id,))
+            conn.execute("DELETE FROM chat_history WHERE session_id = ? AND user_id = ?", (doc_id, owner_id))
+            conn.execute("DELETE FROM chats WHERE session_id = ? AND user_id = ?", (doc_id, owner_id))
+            conn.execute("DELETE FROM generated_outputs WHERE session_id = ? AND user_id = ?", (doc_id, owner_id))
             conn.commit()
+            return True
 
     # Chat Memory APIs
-    def add_chat_msg(self, session_id: str, role: str, content: str, sections: Optional[List[str]] = None) -> None:
+    def add_chat_msg(self, session_id: str, role: str, content: str, owner_id: str, sections: Optional[List[str]] = None) -> None:
         with self.get_connection() as conn:
             conn.execute(
-                "INSERT INTO chat_history (session_id, role, content, sections) VALUES (?, ?, ?, ?)",
-                (session_id, role, content, json.dumps(sections) if sections else None)
+                "INSERT INTO chat_history (user_id, session_id, role, content, sections) VALUES (?, ?, ?, ?, ?)",
+                (owner_id, session_id, role, content, json.dumps(sections) if sections else None)
             )
             conn.commit()
 
-    def get_chat_history(self, session_id: str) -> List[Dict[str, Any]]:
+    def get_chat_history(self, session_id: str, owner_id: str) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             rows = conn.execute(
-                "SELECT role, content, sections FROM chat_history WHERE session_id = ? ORDER BY id ASC",
-                (session_id,)
+                "SELECT role, content, sections FROM chat_history WHERE session_id = ? AND user_id = ? ORDER BY id ASC",
+                (session_id, owner_id)
             ).fetchall()
             history = []
             for r in rows:
@@ -354,10 +460,10 @@ class DBManager:
                 })
             return history
 
-    def clear_chat_history(self, session_id: str) -> None:
+    def clear_chat_history(self, session_id: str, owner_id: str) -> None:
         with self.get_connection() as conn:
-            conn.execute("DELETE FROM chat_history WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM chats WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM chat_history WHERE session_id = ? AND user_id = ?", (session_id, owner_id))
+            conn.execute("DELETE FROM chats WHERE session_id = ? AND user_id = ?", (session_id, owner_id))
             conn.commit()
 
     def log_chat(
@@ -366,16 +472,18 @@ class DBManager:
         user_query: str,
         selected_agent: str,
         response: str,
+        owner_id: str,
         intent: str = "",
         sources: Optional[List[str]] = None,
     ) -> None:
         with self.get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO chats (session_id, user_query, selected_agent, intent, response, sources)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO chats (user_id, session_id, user_query, selected_agent, intent, response, sources)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    owner_id,
                     session_id,
                     user_query,
                     selected_agent,
@@ -392,6 +500,7 @@ class DBManager:
         intent: str,
         query: str,
         response: str,
+        owner_id: str,
         status: str = "success",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
@@ -399,10 +508,11 @@ class DBManager:
         with self.get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO agent_logs (selected_agent, intent, query, response_preview, status, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO agent_logs (user_id, selected_agent, intent, query, response_preview, status, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    owner_id,
                     selected_agent,
                     intent,
                     query,
@@ -418,6 +528,7 @@ class DBManager:
         session_id: str,
         output_type: str,
         title: str,
+        owner_id: str,
         content: str = "",
         file_path: str = "",
         metadata: Optional[Dict[str, Any]] = None,
@@ -425,10 +536,11 @@ class DBManager:
         with self.get_connection() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO generated_outputs (session_id, output_type, title, content, file_path, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO generated_outputs (user_id, session_id, output_type, title, content, file_path, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    owner_id,
                     session_id,
                     output_type,
                     title,
@@ -440,16 +552,17 @@ class DBManager:
             conn.commit()
             return int(cur.lastrowid)
 
-    def list_agent_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_agent_logs(self, owner_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT id, selected_agent, intent, query, response_preview, status, metadata, created_at
                 FROM agent_logs
+                WHERE user_id = ?
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (owner_id, limit),
             ).fetchall()
             return [
                 {
@@ -465,16 +578,17 @@ class DBManager:
                 for r in rows
             ]
 
-    def list_generated_outputs(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_generated_outputs(self, owner_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             rows = conn.execute(
                 """
                 SELECT id, session_id, output_type, title, content, file_path, metadata, created_at
                 FROM generated_outputs
+                WHERE user_id = ?
                 ORDER BY id DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (owner_id, limit),
             ).fetchall()
             return [
                 {
@@ -490,15 +604,15 @@ class DBManager:
                 for r in rows
             ]
 
-    def get_generated_output(self, output_id: int) -> Optional[Dict[str, Any]]:
+    def get_generated_output(self, output_id: int, owner_id: str) -> Optional[Dict[str, Any]]:
         with self.get_connection() as conn:
             row = conn.execute(
                 """
                 SELECT id, session_id, output_type, title, content, file_path, metadata, created_at
                 FROM generated_outputs
-                WHERE id = ?
+                WHERE id = ? AND user_id = ?
                 """,
-                (output_id,),
+                (output_id, owner_id),
             ).fetchone()
             if not row:
                 return None

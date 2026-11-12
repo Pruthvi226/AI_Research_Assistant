@@ -12,6 +12,40 @@ const publication = (i = 1) => ({
     "<jats:p>We evaluate retrieval against a baseline and report its limitations.</jats:p>",
   "is-referenced-by-count": 42,
 });
+async function authenticateTestUser(page) {
+  await page.addInitScript(() => {
+    sessionStorage.setItem(
+      "scientia.session-token",
+      "e2e-session-token-not-valid-outside-this-test",
+    );
+  });
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({
+      json: { user: { id: "e2e-user", email: "researcher@example.test" } },
+    }),
+  );
+  await page.route("**/api/health", (route) =>
+    route.fulfill({
+      json: {
+        mode: "advanced (Gemini)",
+        retrieval: "hybrid_bm25",
+        storage_mode: "ephemeral",
+      },
+    }),
+  );
+  await page.route("**/api/documents", (route) =>
+    route.fulfill({ json: { documents: [] } }),
+  );
+  await page.route("**/api/research/review", (route) =>
+    route.fulfill({
+      json: {
+        response: "Deterministic UI fixture; not a generated research result.",
+        sources: [],
+        mode: "test_fixture",
+      },
+    }),
+  );
+}
 async function search(page) {
   await page.route("https://api.crossref.org/works?**", (route) =>
     route.fulfill({
@@ -34,15 +68,16 @@ test("search, filtering, bookmarking, notes, comparison and export survive navig
 }) => {
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  await authenticateTestUser(page);
   await page.goto("./");
   await search(page);
-  await page.getByLabel("Published", { exact: true }).selectOption("2024");
+  await page.getByLabel("From year", { exact: true }).selectOption("2024");
   await expect(
     page.getByRole("heading", { name: "Evidence-based retrieval study 1" }),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Bookmark paper", exact: true })
-    .first()
+    .nth(1)
     .click();
   await page
     .getByRole("button", { name: "Bookmark paper", exact: true })
@@ -75,6 +110,7 @@ test("search, filtering, bookmarking, notes, comparison and export survive navig
 test("publication API errors and empty states stay actionable", async ({
   page,
 }) => {
+  await authenticateTestUser(page);
   await page.route("https://api.crossref.org/works?**", (route) =>
     route.fulfill({ status: 500, body: "{}" }),
   );
@@ -96,6 +132,7 @@ test("publication API errors and empty states stay actionable", async ({
 test("hash navigation, browser back, theme and keyboard access work", async ({
   page,
 }) => {
+  await authenticateTestUser(page);
   await page.goto("./#library");
   await expect(page.getByRole("heading", { name: "My library" })).toBeVisible();
   await page
@@ -116,7 +153,7 @@ test("hash navigation, browser back, theme and keyboard access work", async ({
   await page.keyboard.press("Enter");
   await expect(page.locator("main")).toBeFocused();
 });
-test("static deployment does not request nonexistent API or claim AI availability", async ({
+test("unauthenticated static deployment shows sign-in without calling a missing API", async ({
   page,
 }) => {
   const apiRequests = [];
@@ -126,20 +163,15 @@ test("static deployment does not request nonexistent API or claim AI availabilit
   });
   await page.goto("./#chat");
   await expect(
-    page.getByRole("button", { name: "Send research question" }),
-  ).toBeDisabled();
-  await expect(page.getByText("Discovery mode", { exact: true })).toBeVisible();
-  await page
-    .getByRole("button", { name: "Paper workspace", exact: true })
-    .click();
-  await expect(
-    page.getByRole("button", { name: "Upload PDF", exact: true }),
-  ).toBeDisabled();
+    page.getByRole("heading", { name: "Welcome back" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   expect(apiRequests).toEqual([]);
 });
 test("desktop and mobile landing layouts have no overflow and pass accessibility checks", async ({
   page,
 }) => {
+  await authenticateTestUser(page);
   for (const width of [1440, 768, 390]) {
     await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
     await page.goto("./");
@@ -176,6 +208,7 @@ test("desktop and mobile landing layouts have no overflow and pass accessibility
 test("dark mode and search result cards pass accessibility checks", async ({
   page,
 }) => {
+  await authenticateTestUser(page);
   await page.goto("./");
   await search(page);
   await page.getByRole("button", { name: "Switch to dark theme" }).click();

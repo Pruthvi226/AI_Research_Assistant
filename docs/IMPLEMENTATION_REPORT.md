@@ -57,11 +57,83 @@ The user then configured Gemini. Authenticated testing exposed a model-compatibi
 
 ## Architectural limits
 
-The backend remains a shared demonstration workspace. It does not implement user accounts, tenant ownership, or end-to-end private document authorization. Admin authentication covers administrative operations, not full user isolation. This is explicitly stated in the interface and README. Confidential/multi-user production launch requires those controls.
+The original implementation report predates the private-platform tranche below. Its deployment history is retained for context; the current code now enforces account ownership on application data routes.
 
 SQLite, one in-memory retrieval index, a serialization lock, in-process jobs, and in-memory rate limits favor a small single-instance deployment. The lock fixes result correctness while reducing concurrency. A future design should move retrieval to isolated per-document indexes, use durable workers and shared limits, and store large files in object storage.
 
 Academic metadata is not a substitute for full-text verification. Crossref may omit fields; DOI enrichment and OpenAlex title matching should be checked manually for high-stakes work. Reviews and gap hypotheses are bounded by the supplied abstracts. The retained audio API depends on external services; no audio playback was newly claimed.
+
+## Private-platform implementation tranche (2026-11-12)
+
+- Added native email/password account creation, sign-in, seven-day bearer
+  sessions, logout/revocation, password hashing, and rate-limited auth endpoints.
+- Added `user_id` ownership columns and enforced owner-scoped reads, writes,
+  history, chat, logs, jobs, generated files, and document file/export routes.
+  Legacy rows without an owner remain inaccessible rather than being claimed
+  by the first user.
+- Added a GitHub Pages-friendly signup/login screen. Session tokens are kept
+  in `sessionStorage` and cleared on sign-out/expired sessions.
+- Removed the legacy shared-admin-key data gate. Provider keys are now
+  operator-configured only; user settings cannot overwrite a shared API key.
+- Tightened local document QA to abstain when retrieval has no relevant
+  evidence, reject unverified model citation markers, and surface page-labeled
+  source references.
+- Patched the audited `follow-redirects` high-severity advisory and added an
+  npm high-severity audit to CI.
+- Updated the API/security/deployment documentation and Render demo settings.
+
+This is not yet a production hosting release. The configured Render free tier
+still uses ephemeral SQLite/files and in-memory jobs; native accounts do not yet
+provide email verification, password reset, MFA, or account recovery. Durable
+storage, restart-safe jobs, backup/restore, identity recovery, and deployment
+host configuration remain external release prerequisites. No cloud resource
+was provisioned, and this tranche was not committed, pushed, or deployed.
+
+## Free-tier research feature tranche
+
+- PDF ingestion now reports document metadata, likely headings, equation and
+  figure/table caption candidates, reference page pointers, extraction method,
+  and OCR status. OCR is opt-in/configurable, page- and DPI-bounded, and only
+  attempted for image-heavy pages with little extracted text. Heuristic outputs
+  are explicitly unverified.
+- Default retrieval is a CPU-light BM25 hybrid with bounded research-term
+  expansion. It uses no model download or paid service; it is lexical retrieval,
+  not a dense embedding model. Dense retrieval remains opt-in.
+- Citation analysis resolves DOI metadata through Crossref where available,
+  cautiously proposes title matches, and provides an unverified source/reference
+  graph plus bounded OpenAlex related-work recommendations. Candidate metadata
+  does not verify that a cited relationship is real.
+- Equation explanation accepts paper context and source pointers, labels
+  unsupported definitions/derivations as unknown, and renders normalized LaTeX
+  candidates in the UI.
+- Discovery adds Crossref publication date/type filters and richer paper detail.
+  Authenticated document export now produces an actual briefing PDF. Generated
+  project ZIPs include model, training/evaluation scripts, configuration,
+  dependencies, source map, and manifest; Python signatures are validated and
+  the bundle is explicitly a syntax-checked scaffold, not a reproduction.
+- GitHub repository candidates expose their provenance and matching evidence;
+  popularity is not treated as relevance and external repository matches remain
+  unverified. Input types and invalid PDF signatures are rejected.
+
+Changed feature code/tests include `backend/pdf_processor.py`, `backend/app.py`,
+`backend/embeddings_engine.py`, `backend/qa_engine.py`,
+`backend/scholarly_service.py`, the citation/math/code/GitHub agents,
+`backend/utils/artifacts.py`, focused backend tests, and the discovery, paper
+detail, equation, briefing-download, and scaffold-download UI in `frontend/src`.
+Related API, system, deployment, and user documentation was updated. Existing
+account ownership checks remain in effect, and `render.yaml` remains
+`plan: free` with `STORAGE_MODE=ephemeral`, `HOSTING_TIER=render-free`, and no
+persistent disk.
+
+Validation run locally: backend pytest passed (57 tests; three PyMuPDF
+deprecation warnings), frontend Vitest passed (7 tests), ESLint passed, and the
+Vite production build passed. Scanned-page OCR execution was not verified on this host;
+OCR needs a working Tesseract runtime and remains bounded/optional. No paid
+services, credentials, provisioning, deployment, push, or commit were used.
+Free Render remains unsuitable for durable/sensitive account or document data.
+Scholarly metadata and generated candidates depend on upstream availability and
+require human verification; the free-tier resource budget also precludes
+claiming dense semantic retrieval as the default.
 
 ## Documentation references used
 
